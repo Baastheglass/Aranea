@@ -12,6 +12,7 @@ const initialMessages = [
 export default function ChatInterface() {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -28,15 +29,41 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
-    // Placeholder Aranea response – replace with your backend call
-    const araneaReply = {
-      id: Date.now() + 1,
-      sender: "aranea",
-      text:
-        "Backend not connected yet. Wire this input to your API route or server and stream Aranea's responses back into this feed."
-    };
+    // Show typing indicator
+    setIsTyping(true);
 
-    setMessages((prev) => [...prev, araneaReply]);
+    try {
+      // Call backend API
+      const response = await fetch("http://localhost:8000/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: trimmed }),
+      });
+
+      const data = await response.json();
+
+      // Hide typing indicator
+      setIsTyping(false);
+
+      // Add Aranea response
+      const araneaReply = {
+        id: Date.now() + 1,
+        sender: "aranea",
+        text: data.response
+      };
+
+      setMessages((prev) => [...prev, araneaReply]);
+    } catch (error) {
+      setIsTyping(false);
+      const errorReply = {
+        id: Date.now() + 1,
+        sender: "aranea",
+        text: "Error connecting to backend. Please ensure the server is running on port 8000."
+      };
+      setMessages((prev) => [...prev, errorReply]);
+    }
   };
 
   return (
@@ -139,6 +166,17 @@ export default function ChatInterface() {
                 </pre>
               </div>
             ))}
+            {isTyping && (
+              <div className="message-row sentinel">
+                <pre className="message-line typing-indicator">
+{`aranea@web:~$ `}<span className="typing-dots">
+  <span className="dot">.</span>
+  <span className="dot">.</span>
+  <span className="dot">.</span>
+</span>
+                </pre>
+              </div>
+            )}
             <form onSubmit={handleSend} className="terminal-input-row">
               <span className="prompt-label">user@web:~$</span>
               <input
