@@ -382,6 +382,11 @@ body {
   -webkit-appearance: none;
 }
 
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .chat-input::placeholder {
   color: transparent;
 }
@@ -491,6 +496,312 @@ body {
 
   .message-bubble {
     max-width: 88%;
+  }
+}
+
+/* Auth Pages */
+
+.auth-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #050018 0, #020011 55%, #020008 100%);
+  padding: 20px;
+  animation: interface-fade-in 500ms ease-out;
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.auth-logo {
+  margin: 0 auto 20px;
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #a855f7;
+  text-shadow: 0 0 16px rgba(168, 85, 247, 0.7);
+  white-space: pre;
+  animation: ascii-breathe 7000ms ease-in-out infinite alternate;
+}
+
+.auth-title {
+  font-size: 42px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: #e5d9ff;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
+}
+
+.auth-subtitle {
+  font-size: 14px;
+  color: #a855f7;
+  margin: 0;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.auth-form {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(8, 0, 20, 0.92);
+  border: 1px solid rgba(147, 51, 234, 0.7);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 0 40px rgba(147, 51, 234, 0.3);
+}
+
+.auth-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.auth-label {
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 14px;
+  color: #4ade80;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.auth-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.5);
+  color: #e5d9ff;
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 15px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color 0.3s ease;
+}
+
+.auth-input:focus {
+  border-bottom-color: #a855f7;
+}
+
+.auth-input::placeholder {
+  color: rgba(168, 85, 247, 0.4);
+}
+
+.auth-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-bottom: 16px;
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.auth-submit {
+  width: 100%;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #f9f5ff;
+  border: 1px solid rgba(147, 51, 234, 0.95);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 18px rgba(147, 51, 234, 0.6);
+  margin-top: 8px;
+}
+
+.auth-submit:hover {
+  background: linear-gradient(135deg, #8b5cf6, #c4b5fd);
+  transform: translateY(-2px);
+  box-shadow: 0 0 22px rgba(168, 85, 247, 0.8);
+}
+
+.auth-submit:active {
+  transform: translateY(0);
+}
+
+.auth-switch {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.auth-link {
+  color: #a855f7;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.3s ease;
+}
+
+.auth-link:hover {
+  color: #c4b5fd;
+  text-decoration: underline;
+}
+
+/* Home Page */
+
+.home-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #050018 0, #020011 55%, #020008 100%);
+  padding: 20px;
+  animation: interface-fade-in 500ms ease-out;
+}
+
+.home-content {
+  width: 100%;
+  max-width: 900px;
+}
+
+.home-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.home-logo {
+  margin: 0 auto 20px;
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #a855f7;
+  text-shadow: 0 0 16px rgba(168, 85, 247, 0.7);
+  white-space: pre;
+  animation: ascii-breathe 7000ms ease-in-out infinite alternate;
+}
+
+.home-title {
+  font-size: 48px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: #e5d9ff;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
+}
+
+.home-subtitle {
+  font-size: 16px;
+  color: #a855f7;
+  margin: 0;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.home-terminal {
+  background: rgba(8, 0, 20, 0.92);
+  border: 1px solid rgba(147, 51, 234, 0.7);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 0 40px rgba(147, 51, 234, 0.3);
+}
+
+.home-welcome {
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #4ade80;
+  margin: 0 0 32px;
+  white-space: pre;
+}
+
+.home-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.home-btn {
+  flex: 1;
+  padding: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+}
+
+.home-btn.primary {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #f9f5ff;
+  border-color: rgba(147, 51, 234, 0.95);
+  box-shadow: 0 0 18px rgba(147, 51, 234, 0.6);
+}
+
+.home-btn.primary:hover {
+  background: linear-gradient(135deg, #8b5cf6, #c4b5fd);
+  transform: translateY(-2px);
+  box-shadow: 0 0 22px rgba(168, 85, 247, 0.8);
+}
+
+.home-btn.secondary {
+  background: transparent;
+  color: #a855f7;
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.home-btn.secondary:hover {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: #a855f7;
+  transform: translateY(-2px);
+}
+
+.home-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.info-card {
+  background: rgba(88, 28, 135, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.info-card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #a855f7;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.info-card p {
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .home-actions {
+    flex-direction: column;
+  }
+
+  .home-info {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-form {
+    padding: 24px;
   }
 }
 

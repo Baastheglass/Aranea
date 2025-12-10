@@ -1,24 +1,17 @@
+import AuthForm from "../components/AuthForm";
 import { useEffect } from "react";
 import { useRouter } from "next/router";
-import LoadingScreen from "@/components/LoadingScreen";
 
-export default function Home() {
+export default function Login() {
   const router = useRouter();
 
   useEffect(() => {
+    // Redirect if already logged in
     const currentUser = localStorage.getItem("currentUser");
     if (currentUser) {
       router.push("/home");
-    } else {
-      router.push("/login");
     }
   }, [router]);
 
-  return (
-    <div className="app-root">
-      <LoadingScreen />
-    </div>
-  );
+  return <AuthForm mode="login" />;
 }
-
-

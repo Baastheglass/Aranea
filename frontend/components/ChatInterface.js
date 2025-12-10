@@ -1,23 +1,30 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 
-const initialMessages = [
-  {
-    id: 1,
-    sender: "aranea",
-    text:
-      "I am Aranea, a distributed neural web. Connect your backend and I will start weaving insights from your data."
-  }
-];
+export default function ChatInterface({ username }) {
+  const initialMessages = [
+    {
+      id: 1,
+      sender: "aranea",
+      text: `Welcome ${username}. I am Aranea, a distributed neural web. How may I assist you today?`
+    }
+  ];
 
-export default function ChatInterface() {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleContainerClick = () => {
+    // Focus input when clicking anywhere in the chat area
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isTyping) return;
 
     const userMessage = {
       id: Date.now(),
@@ -28,7 +35,7 @@ export default function ChatInterface() {
     // Immediately show user message
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-
+    
     // Show typing indicator
     setIsTyping(true);
 
@@ -44,9 +51,6 @@ export default function ChatInterface() {
 
       const data = await response.json();
 
-      // Hide typing indicator
-      setIsTyping(false);
-
       // Add Aranea response
       const araneaReply = {
         id: Date.now() + 1,
@@ -55,14 +59,17 @@ export default function ChatInterface() {
       };
 
       setMessages((prev) => [...prev, araneaReply]);
+      
     } catch (error) {
-      setIsTyping(false);
       const errorReply = {
         id: Date.now() + 1,
         sender: "aranea",
         text: "Error connecting to backend. Please ensure the server is running on port 8000."
       };
       setMessages((prev) => [...prev, errorReply]);
+    } finally {
+      // Hide typing indicator after response is complete
+      setIsTyping(false);
     }
   };
 
@@ -134,7 +141,7 @@ export default function ChatInterface() {
         </pre>
       </div>
 
-      <div className="chat-shell">
+      <div className="chat-shell" onClick={handleContainerClick}>
         <main className="chat-main">
           <div className="chat-messages">
             <pre className="terminal-header">
@@ -180,11 +187,13 @@ export default function ChatInterface() {
             <form onSubmit={handleSend} className="terminal-input-row">
               <span className="prompt-label">user@web:~$</span>
               <input
+                ref={inputRef}
                 type="text"
                 className="chat-input"
                 placeholder=""
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                disabled={isTyping}
               />
             </form>
           </div>
