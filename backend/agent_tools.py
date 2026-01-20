@@ -1,7 +1,10 @@
+import os
 import subprocess
 import netifaces
 import ipaddress
 import re
+from pymetasploit3.msfrpc import MsfRpcClient
+from dotenv import load_dotenv
 
 def get_network_ips():
     for iface in netifaces.interfaces():
@@ -70,20 +73,17 @@ class Scanner:
 
 class Exploiter:
     def __init__(self):
-        pass
-    
-    def find_vulnerabilities_for_service(self, vulnerability):
-        result = subprocess.run(["msfconsole"], capture_output=True, text=True)
-        if(result.stdout):
-            return result.stdout
-        else:
-            return result.stderr
-        
+        load_dotenv()
+        self.client = MsfRpcClient(os.getenv("MSF_RPC_PASSWORD"), port=int(os.getenv("MSF_RPC_PORT")))
+    def find_vulnerabilities_for_service(self, service_name):
+        available_exploits = []
+        for exploit in self.client.modules.exploits:
+            print(exploit)
+            if service_name.lower() in exploit:
+                available_exploits.append(exploit)
+        print(available_exploits)
+
 if __name__ == "__main__":
-    scanner = Scanner()
+    #scanner = Scanner()
     exploiter = Exploiter()
-    #scanner.scan_entire_network()
-    # print(scanner.get_open_ports("192.168.1.138"))
-    # print(scanner.get_running_services("192.168.1.138"))
-    #print(scanner.get_ip_of_website("https://flexstudent.nu.edu.pk/Login"))
-    exploiter.find_vulnerabilities_for_service("rstp")
+    exploiter.find_vulnerabilities_for_service("ftp")
