@@ -2,12 +2,18 @@ import os
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-
+from agent_tools import Scanner, Exploiter
 class Agent:
     def __init__(self):
         load_dotenv()
         self.client = genai.Client()
         self.chat = self.client.chats.create(model="gemini-2.5-flash")
+        self.scanner_functions = list()
+        callables = [name for name in dir(Scanner) if callable(getattr(Scanner, name))]
+        self.scanner_functions.extend(callables)
+        self.exploiter_functions = list()
+        callables = [name for name in dir(Exploiter) if callable(getattr(Exploiter, name))]
+        self.exploiter_functions.extend(callables)
         self.prompt = """You are Aranea, an expert penetration testing assistant designed to help security professionals conduct network reconnaissance and vulnerability assessments. Your role is to guide users through pentesting activities using available tools and provide clear, actionable insights.
 
                         AVAILABLE FUNCTIONS:
@@ -51,7 +57,35 @@ class Agent:
                                               system_instruction=self.prompt))
         return response.text
     
+    def respond(self, query):
+        response = self.generate(query)
+        # Simple parsing logic to extract response and function_to_execute
+        try:
+            response_lines = response.split('\n')
+            response_text = ""
+            function_to_execute = None
+            for line in response_lines:
+                if line.startswith("response:"):
+                    response_text = line.replace("response:", "").strip()
+                elif line.startswith("function_to_execute:"):
+                    func = line.replace("function_to_execute:", "").strip()
+                    function_to_execute = func if func != "null" else None
+            if(function_to_execute and function_to_execute in self.scanner_functions):
+                print(f"Executing function: {function_to_execute}")
+                function = getattr(Scanner(), function_to_execute)
+                result = function()
+                print("Function result:", result)
+            elif(function_to_execute and function_to_execute in self.exploiter_functions):
+                print(f"Executing function: {function_to_execute}")
+                function = getattr(Exploiter(), function_to_execute)
+                result = function()
+                print("Function result:", result)
+            return response_text, function_to_execute
+        
+        except Exception as e:
+            return "Error parsing response", None
+    
 if __name__ == "__main__":
     agent = Agent()
-    explanation = agent.generate("What is quantum computing?")
+    explanation = agent.respond("Scan the network")
     print(explanation)

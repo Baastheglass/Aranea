@@ -40,7 +40,7 @@ class Scanner:
                 try:
                     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
                     print("Network being scanned: ", network)
-                    result = subprocess.run(["nmap", "-sn", str(network)], capture_output=True, text=True)
+                    result = subprocess.run(["nmap", "-sn", "-n", str(network)], capture_output=True, text=True)
                     return result.stdout if result.stdout else result.stderr
                 except ValueError:
                     continue
@@ -78,10 +78,9 @@ class Exploiter:
     def find_vulnerabilities_for_service(self, service_name):
         available_exploits = []
         for exploit in self.client.modules.exploits:
-            print(exploit)
             if service_name.lower() in exploit:
                 available_exploits.append(exploit)
-        print(available_exploits)
+        return available_exploits
 
 if __name__ == "__main__":
     #scanner = Scanner()
