@@ -1,7 +1,7 @@
 frontend/node_modules/
 .next/
 backend/.env
-backend/env/
+backend/aranea_env/
 backend/__pycache__/
 msfinstall
 backend/test.py

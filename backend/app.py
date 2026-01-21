@@ -1,9 +1,10 @@
 import uvicorn
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
 from agent import Agent
 from db import Database
+from websocket_manager import ws_manager
 
 app = FastAPI()
 
@@ -107,6 +108,44 @@ async def login(request: LoginRequest):
 async def generate_content(query: str = Body(..., embed=True)):
     response = agent.generate(query)
     return {"response": response}
+
+# WebSocket endpoint
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await ws_manager.connect(websocket, session_id)
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+            
+            # Handle the message based on type
+            if data.get("type") == "query":
+                query = data.get("message")
+                
+                # Send text_response_generated event
+                response_text, function_to_execute = agent.respond(query)
+                await ws_manager.send_event(session_id, "text_response_generated", {
+                    "text": response_text
+                })
+                
+                # If there's a function to execute, send waiting event
+                if function_to_execute:
+                    await ws_manager.send_event(session_id, "waiting_on_function_response", {
+                        "function": function_to_execute
+                    })
+                    
+                    # After function execution completes (handled in agent.respond)
+                    # Send function_response_generated event
+                    await ws_manager.send_event(session_id, "function_response_generated", {
+                        "function": function_to_execute,
+                        "completed": True
+                    })
+    
+    except WebSocketDisconnect:
+        ws_manager.disconnect(session_id)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        ws_manager.disconnect(session_id)
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000)
