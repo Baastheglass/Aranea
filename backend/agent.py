@@ -57,7 +57,7 @@ class Agent:
                                               system_instruction=self.prompt))
         return response.text
     
-    def respond(self, query):
+    async def respond(self, query, ws_manager = None, session_id = None):
         response = self.generate(query)
         # Simple parsing logic to extract response and function_to_execute
         try:
@@ -70,20 +70,26 @@ class Agent:
                 elif line.startswith("function_to_execute:"):
                     func = line.replace("function_to_execute:", "").strip()
                     function_to_execute = func if func != "null" else None
-            if(function_to_execute and function_to_execute in self.scanner_functions):
-                print(f"Executing function: {function_to_execute}")
-                function = getattr(Scanner(), function_to_execute)
-                result = function()
-                print("Function result:", result)
-            elif(function_to_execute and function_to_execute in self.exploiter_functions):
-                print(f"Executing function: {function_to_execute}")
-                function = getattr(Exploiter(), function_to_execute)
-                result = function()
-                print("Function result:", result)
-            return response_text, function_to_execute
-        
+            if ws_manager and session_id:
+                if(function_to_execute and function_to_execute in self.scanner_functions):
+                    await ws_manager.send_event(session_id, "text_response_with_function", response)
+                    print(f"Executing function: {function_to_execute}")
+                    function = getattr(Scanner(), function_to_execute)
+                    result = function()
+                    await ws_manager.send_event(session_id, "function_result", result)
+                    print("Function result:", result)
+                elif(function_to_execute and function_to_execute in self.exploiter_functions):
+                    await ws_manager.send_event(session_id, "text_response_with_function", response)
+                    print(f"Executing function: {function_to_execute}")
+                    function = getattr(Exploiter(), function_to_execute)
+                    result = function()
+                    await ws_manager.send_event(session_id, "function_result", result)
+                    print("Function result:", result)
+                else:
+                    await ws_manager.send_event(session_id, "text_response_no_function", response)   
         except Exception as e:
-            return "Error parsing response", None
+            await ws_manager.send_event(session_id, "error", {"message": str(e)})
+            print(f"Error in respond method: {e}")
     
 if __name__ == "__main__":
     agent = Agent()

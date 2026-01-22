@@ -122,28 +122,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if data.get("type") == "query":
                 query = data.get("message")
                 
-                # Send text_response_generated event
-                response_text, function_to_execute = agent.respond(query)
-                await ws_manager.send_event(session_id, "text_response_generated", {
-                    "text": response_text
-                })
-                
-                # If there's a function to execute, send waiting event
-                if function_to_execute:
-                    await ws_manager.send_event(session_id, "waiting_on_function_response", {
-                        "function": function_to_execute
-                    })
-                    
-                    # After function execution completes (handled in agent.respond)
-                    # Send function_response_generated event
-                    await ws_manager.send_event(session_id, "function_response_generated", {
-                        "function": function_to_execute,
-                        "completed": True
-                    })
+                # Agent handles all event emissions internally
+                await agent.respond(query, ws_manager=ws_manager, session_id=session_id)
     
     except WebSocketDisconnect:
         ws_manager.disconnect(session_id)
     except Exception as e:
+        print(f"WebSocket error: {e}")
+        ws_manager.disconnect(session_id)
         print(f"WebSocket error: {e}")
         ws_manager.disconnect(session_id)
 
