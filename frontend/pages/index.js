@@ -14,9 +14,13 @@ export default function Home() {
     }
   }, [router]);
 
+  const handleLoadingComplete = () => {
+    console.log("Loading complete");
+  };
+
   return (
     <div className="app-root">
-      <LoadingScreen />
+      <LoadingScreen onComplete={handleLoadingComplete} />
     </div>
   );
 }

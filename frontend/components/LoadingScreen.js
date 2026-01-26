@@ -3,7 +3,9 @@ import { useEffect } from "react";
 export default function LoadingScreen({ onComplete }) {
   useEffect(() => {
     const timer = setTimeout(() => {
-      onComplete();
+      if (onComplete) {
+        onComplete();
+      }
     }, 5000);
 
     return () => clearTimeout(timer);
