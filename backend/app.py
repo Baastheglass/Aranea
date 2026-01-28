@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
+# Initialize services lazily - connections will be made on first use
 agent = Agent()
 db = Database()
 
@@ -134,4 +134,4 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         ws_manager.disconnect(session_id)
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

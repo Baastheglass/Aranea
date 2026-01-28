@@ -8,9 +8,27 @@ class Database:
     def __init__(self):
         load_dotenv()
         self.uri = os.getenv("MONGODB_URI")
-        self.client = MongoClient(self.uri)
-        self.database = self.client.get_database("aranea")
-        self.users = self.database.get_collection("users")
+        self._client = None
+        self._database = None
+        self._users = None
+    
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = MongoClient(self.uri)
+        return self._client
+    
+    @property
+    def database(self):
+        if self._database is None:
+            self._database = self.client.get_database("aranea")
+        return self._database
+    
+    @property
+    def users(self):
+        if self._users is None:
+            self._users = self.database.get_collection("users")
+        return self._users
         
     # User Authentication Functions
     def create_user(self, username, email, password):

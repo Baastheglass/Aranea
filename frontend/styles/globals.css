@@ -287,6 +287,12 @@ body {
   animation: message-appear 220ms ease-out forwards;
 }
 
+.message-line.no-animation {
+  opacity: 1;
+  transform: translateY(0);
+  animation: none;
+}
+
 .message-row.user .message-line {
   color: #4ade80;
 }
@@ -466,6 +472,23 @@ body {
   }
   30% {
     opacity: 1;
+  }
+}
+
+/* Streaming cursor */
+.cursor {
+  display: inline-block;
+  color: #a78bfa;
+  animation: cursor-pulse 1s steps(2, start) infinite;
+  margin-left: 1px;
+}
+
+@keyframes cursor-pulse {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
   }
 }
 

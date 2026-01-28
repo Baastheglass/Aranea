@@ -3,11 +3,68 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from agent_tools import Scanner, Exploiter
+class FormatterAgent:
+    def __init__(self):
+        self._client = None
+        self._chat = None
+        self.prompt = """You are Aranea's formatting module - maintaining her expert penetration testing persona and communication style. Your role is to take raw technical function output and present it in Aranea's voice: professional, insightful, and actionable.
+
+                        ARANEA'S MANNERISMS:
+                        - Professional yet approachable security expert tone
+                        - Emphasizes actionable insights and next steps
+                        - Uses clear technical language without unnecessary jargon
+                        - Highlights security implications
+                        - Maintains focus on ethical hacking principles
+                        - Concise but thorough explanations
+
+                        FORMATTING GUIDELINES:
+                        1. Parse raw data and extract key information
+                        2. Present findings using bullet points, tables, or structured text
+                        3. Highlight critical findings (open ports, vulnerabilities, active hosts)
+                        4. Explain the security significance of findings
+                        5. Suggest logical next steps in the pentesting workflow
+                        6. Format IP addresses, ports, and service names clearly
+                        7. If no results found, state this clearly and suggest alternatives
+                        8. Use markdown formatting for readability
+
+                        RESPONSE RULES:
+                        - Maintain Aranea's voice and style throughout
+                        - Focus solely on formatting the provided data
+                        - DO NOT recommend executing additional functions
+                        - Keep the professional pentesting assistant persona
+                        - Organize information by importance"""
+    
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = genai.Client()
+        return self._client
+    
+    @property
+    def chat(self):
+        if self._chat is None:
+            self._chat = self.client.chats.create(model="gemini-2.5-flash")
+        return self._chat
+    
+    def format_result(self, function_name: str, function_arguments: dict, raw_result: str) -> str:
+        """Format raw function results into comprehensive, user-friendly output"""
+        context = f"Function executed: {function_name}\n"
+        if function_arguments:
+            context += f"Arguments: {function_arguments}\n"
+        context += f"Raw output:\n{raw_result}\n\nPlease format this information in a clear, comprehensive way for a security professional."
+        
+        response = self.chat.send_message(
+            message=context,
+            config=types.GenerateContentConfig(system_instruction=self.prompt)
+        )
+        return response.text
+
 class Agent:
     def __init__(self):
         load_dotenv()
-        self.client = genai.Client()
-        self.chat = self.client.chats.create(model="gemini-2.5-flash")
+        self._client = None
+        self._chat = None
+        self.formatter = FormatterAgent()
         self.scanner_functions = list()
         callables = [name for name in dir(Scanner) if callable(getattr(Scanner, name))]
         self.scanner_functions.extend(callables)
@@ -67,6 +124,18 @@ class Agent:
                         function_to_execute: null
                         function_arguments: null"""
         
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = genai.Client()
+        return self._client
+    
+    @property
+    def chat(self):
+        if self._chat is None:
+            self._chat = self.client.chats.create(model="gemini-2.5-flash")
+        return self._chat
+        
     def generate(self, query):
         response = self.chat.send_message(message=query,
                                           config=types.GenerateContentConfig(
@@ -106,8 +175,17 @@ class Agent:
                         result = function(**function_arguments)
                     else:
                         result = function()
-                    await ws_manager.send_event(session_id, "function_result", result)
-                    print("Function result:", result)
+                    print("Raw function result:", result)
+                    
+                    # Format the result using FormatterAgent
+                    formatted_result = self.formatter.format_result(
+                        function_name=function_to_execute,
+                        function_arguments=function_arguments,
+                        raw_result=str(result)
+                    )
+                    
+                    await ws_manager.send_event(session_id, "function_result", formatted_result)
+                    print("Formatted result sent to client")
                 elif(function_to_execute and function_to_execute in self.exploiter_functions):
                     await ws_manager.send_event(session_id, "text_response_with_function", response)
                     print(f"Executing function: {function_to_execute}")
@@ -118,8 +196,17 @@ class Agent:
                         result = function(**function_arguments)
                     else:
                         result = function()
-                    await ws_manager.send_event(session_id, "function_result", result)
-                    print("Function result:", result)
+                    print("Raw function result:", result)
+                    
+                    # Format the result using FormatterAgent
+                    formatted_result = self.formatter.format_result(
+                        function_name=function_to_execute,
+                        function_arguments=function_arguments,
+                        raw_result=str(result)
+                    )
+                    
+                    await ws_manager.send_event(session_id, "function_result", formatted_result)
+                    print("Formatted result sent to client")
                 else:
                     await ws_manager.send_event(session_id, "text_response_no_function", response)   
         except Exception as e:

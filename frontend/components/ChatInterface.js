@@ -12,9 +12,59 @@ export default function ChatInterface({ username }) {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState(null);
   const inputRef = useRef(null);
   const wsRef = useRef(null);
   const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+  const streamingIntervalRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingMessage]);
+
+  // Function to stream text character by character
+  const streamText = (text, messageId) => {
+    return new Promise((resolve) => {
+      let index = 0;
+      const newMessage = {
+        id: messageId || Date.now() + Math.random(),
+        sender: "aranea",
+        text: ""
+      };
+      
+      setStreamingMessage(newMessage);
+      
+      // Clear any existing interval
+      if (streamingIntervalRef.current) {
+        clearInterval(streamingIntervalRef.current);
+      }
+      
+      streamingIntervalRef.current = setInterval(() => {
+        if (index < text.length) {
+          const char = text[index];
+          setStreamingMessage(prev => ({
+            ...prev,
+            text: prev.text + char
+          }));
+          index++;
+        } else {
+          clearInterval(streamingIntervalRef.current);
+          streamingIntervalRef.current = null;
+          
+          // Add completed message to messages array with wasStreamed flag
+          setMessages(prev => [...prev, {
+            ...newMessage,
+            text: text,
+            wasStreamed: true
+          }]);
+          setStreamingMessage(null);
+          resolve();
+        }
+      }, 20); // Adjust speed here (milliseconds per character)
+    });
+  };
 
   useEffect(() => {
     // Connect to WebSocket
@@ -24,7 +74,7 @@ export default function ChatInterface({ username }) {
       console.log("WebSocket connected");
     };
     
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       const eventData = JSON.parse(event.data);
       console.log("Received event:", eventData);
       
@@ -44,12 +94,8 @@ export default function ChatInterface({ username }) {
             }
           }
         }
-        const araneaReply = {
-          id: Date.now() + Math.random(),
-          sender: "aranea",
-          text: responseText
-        };
-        setMessages((prev) => [...prev, araneaReply]);
+        // Stream the response
+        await streamText(responseText);
       } else if (eventData.event === "text_response_with_function") {
         setIsTyping(true);
         // Extract response text from the data
@@ -63,12 +109,8 @@ export default function ChatInterface({ username }) {
             }
           }
         }
-        const araneaReply = {
-          id: Date.now() + Math.random(),
-          sender: "aranea",
-          text: responseText
-        };
-        setMessages((prev) => [...prev, araneaReply]);
+        // Stream the response
+        await streamText(responseText);
       } else if (eventData.event === "function_result") {
         setIsTyping(false);
         // Format the result data
@@ -79,28 +121,17 @@ export default function ChatInterface({ username }) {
         } else {
           resultText = JSON.stringify(eventData.data, null, 2);
         }
-        const resultMessage = {
-          id: Date.now() + Math.random(),
-          sender: "aranea",
-          text: resultText
-        };
-        setMessages((prev) => [...prev, resultMessage]);
+        // Stream the result
+        await streamText(resultText);
       } else if (eventData.event === "response" || eventData.event === "error") {
         setIsTyping(false);
-        const araneaReply = {
-          id: Date.now() + Math.random(),
-          sender: "aranea",
-          text: eventData.data.message || eventData.data.text || JSON.stringify(eventData.data)
-        };
-        setMessages((prev) => [...prev, araneaReply]);
+        const responseText = eventData.data.message || eventData.data.text || JSON.stringify(eventData.data);
+        // Stream the response
+        await streamText(responseText);
       } else if (eventData.event === "tool_call" || eventData.event === "tool_result") {
         // Optionally display tool calls
-        const toolMessage = {
-          id: Date.now() + Math.random(),
-          sender: "aranea",
-          text: `[${eventData.event}] ${eventData.data.message || JSON.stringify(eventData.data)}`
-        };
-        setMessages((prev) => [...prev, toolMessage]);
+        const toolText = `[${eventData.event}] ${eventData.data.message || JSON.stringify(eventData.data)}`;
+        await streamText(toolText);
       }
     };
     
@@ -120,6 +151,9 @@ export default function ChatInterface({ username }) {
     return () => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
+      }
+      if (streamingIntervalRef.current) {
+        clearInterval(streamingIntervalRef.current);
       }
     };
   }, []);
@@ -260,14 +294,21 @@ export default function ChatInterface({ username }) {
                   m.sender === "user" ? "message-row user" : "message-row sentinel"
                 }
               >
-                <pre className="message-line">
+                <pre className={m.wasStreamed ? "message-line no-animation" : "message-line"}>
 {m.sender === "user"
   ? `user@web:~$ ${m.text}`
   : `aranea@web:~$ ${m.text}`}
                 </pre>
               </div>
             ))}
-            {isTyping && (
+            {streamingMessage && (
+              <div className="message-row sentinel">
+                <pre className="message-line">
+{`aranea@web:~$ ${streamingMessage.text}`}<span className="cursor">▊</span>
+                </pre>
+              </div>
+            )}
+            {isTyping && !streamingMessage && (
               <div className="message-row sentinel">
                 <pre className="message-line typing-indicator">
 {`aranea@web:~$ `}<span className="typing-dots">
@@ -278,18 +319,20 @@ export default function ChatInterface({ username }) {
                 </pre>
               </div>
             )}
-            <form onSubmit={handleSend} className="terminal-input-row">
-              <span className="prompt-label">user@web:~$</span>
-              <input
-                ref={inputRef}
-                type="text"
-                className="chat-input"
-                placeholder=""
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={isTyping}
-              />
-            </form>
+            {!isTyping && !streamingMessage && (
+              <form onSubmit={handleSend} className="terminal-input-row">
+                <span className="prompt-label">user@web:~$</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  className="chat-input"
+                  placeholder=""
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                />
+              </form>
+            )}
+            <div ref={messagesEndRef} />
           </div>
         </main>
       </div>

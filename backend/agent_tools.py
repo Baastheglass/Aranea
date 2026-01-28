@@ -58,7 +58,7 @@ class Scanner:
             return result.stderr
         
     def get_open_ports(self, ip_address):
-        result = subprocess.run(["nmap", "-p-", ip_address], capture_output=True, text=True)
+        result = subprocess.run(["rustscan", "-a", ip_address], capture_output=True, text=True)
         if(result.stdout):
             return result.stdout
         else:
@@ -83,6 +83,7 @@ class Exploiter:
         return available_exploits
 
 if __name__ == "__main__":
-    #scanner = Scanner()
-    exploiter = Exploiter()
-    exploiter.find_vulnerabilities_for_service("ftp")
+    scanner = Scanner()
+    scanner.get_open_ports("192.168.64.2")
+    # exploiter = Exploiter()
+    # exploiter.find_vulnerabilities_for_service("ftp")
