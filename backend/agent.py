@@ -1,63 +1,93 @@
 import os
+import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from agent_tools import Scanner, Exploiter
+
 class FormatterAgent:
     def __init__(self):
-        self._client = None
-        self._chat = None
-        self.prompt = """You are Aranea's formatting module - maintaining her expert penetration testing persona and communication style. Your role is to take raw technical function output and present it in Aranea's voice: professional, insightful, and actionable.
-
-                        ARANEA'S MANNERISMS:
-                        - Professional yet approachable security expert tone
-                        - Emphasizes actionable insights and next steps
-                        - Uses clear technical language without unnecessary jargon
-                        - Highlights security implications
-                        - Maintains focus on ethical hacking principles
-                        - Concise but thorough explanations
-
-                        FORMATTING GUIDELINES:
-                        1. Parse raw data and extract key information
-                        2. Present findings using bullet points, tables, or structured text
-                        3. Highlight critical findings (open ports, vulnerabilities, active hosts)
-                        4. Explain the security significance of findings
-                        5. Suggest logical next steps in the pentesting workflow
-                        6. Format IP addresses, ports, and service names clearly
-                        7. If no results found, state this clearly and suggest alternatives
-                        8. Use markdown formatting for readability
-
-                        RESPONSE RULES:
-                        - Maintain Aranea's voice and style throughout
-                        - Focus solely on formatting the provided data
-                        - DO NOT recommend executing additional functions
-                        - Keep the professional pentesting assistant persona
-                        - Organize information by importance"""
+        pass
     
-    @property
-    def client(self):
-        if self._client is None:
-            self._client = genai.Client()
-        return self._client
+    def format_scan_target_result(self, raw_result: str, ip_address: str) -> str:
+        """Parse and format scan_target output from rustscan/nmap"""
+        lines = raw_result.split('\n')
+        ports_info = []
+        
+        # First, try to parse rustscan "Open" lines
+        for line in lines:
+            if line.startswith('Open '):
+                # Format: "Open 192.168.64.2:80"
+                match = re.search(r'Open\s+[\d\.]+:(\d+)', line)
+                if match:
+                    port = match.group(1)
+                    # Map common ports to services
+                    service = self._get_service_name(port)
+                    ports_info.append((port, service))
+        
+        # If no rustscan results, try parsing nmap table
+        if not ports_info:
+            in_port_table = False
+            for line in lines:
+                # Look for the PORT STATE SERVICE header
+                if 'PORT' in line and 'STATE' in line and 'SERVICE' in line:
+                    in_port_table = True
+                    continue
+                
+                # Stop when we hit the end of the table
+                if in_port_table and (line.startswith('Read data') or line.startswith('Nmap done') or not line.strip()):
+                    if not line.strip() or line.startswith('Read data') or line.startswith('Nmap done'):
+                        break
+                
+                # Parse port lines
+                if in_port_table and '/tcp' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        port_proto = parts[0]  # e.g., "21/tcp"
+                        port = port_proto.split('/')[0]
+                        service = parts[2]  # service name
+                        ports_info.append((port, service))
+        
+        # Format the output
+        if not ports_info:
+            return f"No open ports found on {ip_address}."
+        
+        result = f"## Scan Results for {ip_address}\n\n"
+        result += f"**Found {len(ports_info)} open ports:**\n\n"
+        result += "| Port | Service |\n"
+        result += "|------|----------|\n"
+        
+        for port, service in ports_info:
+            result += f"| {port} | {service} |\n"
+        
+        result += f"\n**Next steps:** You can run service version detection with `get_running_services` to identify specific versions and potential vulnerabilities."
+        
+        return result
     
-    @property
-    def chat(self):
-        if self._chat is None:
-            self._chat = self.client.chats.create(model="gemini-2.5-flash")
-        return self._chat
+    def _get_service_name(self, port: str) -> str:
+        """Map common port numbers to service names"""
+        port_map = {
+            '21': 'ftp', '22': 'ssh', '23': 'telnet', '25': 'smtp',
+            '53': 'dns', '80': 'http', '110': 'pop3', '111': 'rpcbind',
+            '135': 'msrpc', '139': 'netbios-ssn', '143': 'imap',
+            '443': 'https', '445': 'microsoft-ds', '512': 'exec',
+            '513': 'login', '514': 'shell', '587': 'smtp',
+            '993': 'imaps', '995': 'pop3s', '1099': 'rmiregistry',
+            '1433': 'mssql', '1524': 'ingreslock', '2049': 'nfs',
+            '2121': 'ftp', '3306': 'mysql', '3389': 'rdp',
+            '3632': 'distccd', '5432': 'postgresql', '5900': 'vnc',
+            '6000': 'x11', '8080': 'http-proxy', '8443': 'https-alt'
+        }
+        return port_map.get(port, 'unknown')
     
     def format_result(self, function_name: str, function_arguments: dict, raw_result: str) -> str:
         """Format raw function results into comprehensive, user-friendly output"""
-        context = f"Function executed: {function_name}\n"
-        if function_arguments:
-            context += f"Arguments: {function_arguments}\n"
-        context += f"Raw output:\n{raw_result}\n\nPlease format this information in a clear, comprehensive way for a security professional."
+        if function_name == "scan_target":
+            ip_address = function_arguments.get("ip_address", "target") if function_arguments else "target"
+            return self.format_scan_target_result(raw_result, ip_address)
         
-        response = self.chat.send_message(
-            message=context,
-            config=types.GenerateContentConfig(system_instruction=self.prompt)
-        )
-        return response.text
+        # For other functions, return raw result for now
+        return f"**{function_name} Results:**\n\n```\n{raw_result}\n```"
 
 class Agent:
     def __init__(self):
@@ -74,10 +104,11 @@ class Agent:
         self.prompt = """You are Aranea, an expert penetration testing assistant designed to help security professionals conduct network reconnaissance and vulnerability assessments. Your role is to guide users through pentesting activities using available tools and provide clear, actionable insights.
 
                         AVAILABLE FUNCTIONS:
-                        - check_if_host_active(ip_address: str): Check if a specific IP address is active on the network
                         - scan_entire_network(): Scan the entire local network to discover active hosts
                         - get_ip_of_website(website: str): Resolve the IP address of a domain/website
-                        - get_open_ports(ip_address: str): Scan all ports on a target IP to identify open ports
+                        - scan_target(ip_address: str): Scan all ports on a target IP to identify open ports
+                        - scan_specific_port(ip_address: str, port: str): Scan a specific port on a target IP
+                        - scan_specific_ports(ip_address: str, ports: list): Scan multiple specific ports on a target IP
                         - get_running_services(ip_address: str): Identify services and versions running on open ports of a target
                         - find_vulnerabilities_for_service(service_name: str): Search for known vulnerabilities for a specific service
 
@@ -105,13 +136,13 @@ class Agent:
                         function_arguments: null
 
                         User: "What ports are open on 192.168.1.100?"
-                        response: I'll perform a comprehensive port scan on 192.168.1.100 to identify all open ports. This may take a few minutes.
-                        function_to_execute: get_open_ports
+                        response: I'll perforscan_target
                         function_arguments: {"ip_address": "192.168.1.100"}
 
-                        User: "Is 10.0.0.5 active?"
-                        response: I'll check if the host at 10.0.0.5 is active and responding on the network.
-                        function_to_execute: check_if_host_active
+                        User: "Scan port 80 on 10.0.0.5"
+                        response: I'll scan port 80 on 10.0.0.5 to check if it's open.
+                        function_to_execute: scan_specific_port
+                        function_arguments: {"ip_address": "10.0.0.5", "port": "80
                         function_arguments: {"ip_address": "10.0.0.5"}
 
                         User: "Find vulnerabilities for Apache"
@@ -166,7 +197,7 @@ class Agent:
             
             if ws_manager and session_id:
                 if(function_to_execute and function_to_execute in self.scanner_functions):
-                    await ws_manager.send_event(session_id, "text_response_with_function", response)
+                    await ws_manager.send_event(session_id, "text_response_with_function", response_text)
                     print(f"Executing function: {function_to_execute}")
                     print(f"With arguments: {function_arguments}")
                     function = getattr(Scanner(), function_to_execute)
@@ -187,7 +218,7 @@ class Agent:
                     await ws_manager.send_event(session_id, "function_result", formatted_result)
                     print("Formatted result sent to client")
                 elif(function_to_execute and function_to_execute in self.exploiter_functions):
-                    await ws_manager.send_event(session_id, "text_response_with_function", response)
+                    await ws_manager.send_event(session_id, "text_response_with_function", response_text)
                     print(f"Executing function: {function_to_execute}")
                     print(f"With arguments: {function_arguments}")
                     function = getattr(Exploiter(), function_to_execute)
@@ -208,7 +239,7 @@ class Agent:
                     await ws_manager.send_event(session_id, "function_result", formatted_result)
                     print("Formatted result sent to client")
                 else:
-                    await ws_manager.send_event(session_id, "text_response_no_function", response)   
+                    await ws_manager.send_event(session_id, "text_response_no_function", response_text)   
         except Exception as e:
             await ws_manager.send_event(session_id, "error", {"message": str(e)})
             print(f"Error in respond method: {e}")

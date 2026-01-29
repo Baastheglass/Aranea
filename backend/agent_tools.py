@@ -23,13 +23,6 @@ class Scanner:
     def __init__(self):
         pass
     
-    def check_if_host_active(self, ip_address):
-        result = subprocess.run(["nmap", "-sn", ip_address], capture_output=True, text=True)
-        if(result.stdout):
-            return result.stdout
-        else:
-            return result.stderr
-    
     def scan_entire_network(self):
         for iface in netifaces.interfaces():
             addrs = netifaces.ifaddresses(iface)
@@ -39,8 +32,14 @@ class Scanner:
                 mask = ipv4['netmask']
                 try:
                     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
+                    ip_obj = ipaddress.ip_address(ip)
+                    
+                    # Skip loopback (127.0.0.0/8) and link-local (169.254.0.0/16) addresses
+                    if ip_obj.is_loopback or ip_obj.is_link_local:
+                        continue
+                    
                     print("Network being scanned: ", network)
-                    result = subprocess.run(["nmap", "-sn", "-n", str(network)], capture_output=True, text=True)
+                    result = subprocess.run(["rustscan", "-a", str(network)], capture_output=True, text=True)
                     return result.stdout if result.stdout else result.stderr
                 except ValueError:
                     continue
@@ -57,13 +56,30 @@ class Scanner:
         else:
             return result.stderr
         
-    def get_open_ports(self, ip_address):
+    def scan_target(self, ip_address):
         result = subprocess.run(["rustscan", "-a", ip_address], capture_output=True, text=True)
         if(result.stdout):
             return result.stdout
         else:
             return result.stderr
     
+    def scan_specific_port(self, ip_address, port):
+        result = subprocess.run(["rustscan", "-a", ip_address, "-p", port], capture_output=True, text=True)
+        if(result.stdout):
+            return result.stdout
+        else:
+            return result.stderr
+    
+    def scan_specific_ports(self, ip_address, ports):
+        ports = ""
+        for port in ports:
+            ports += f"{port},"
+        result = subprocess.run(["rustscan", "-a", ip_address, "-p", ports], capture_output=True, text=True)
+        if(result.stdout):
+            return result.stdout
+        else:
+            return result.stderr
+        
     def get_running_services(self, ip_address):
         result = subprocess.run(["nmap", "-sV", ip_address], capture_output=True, text=True)
         if(result.stdout):
@@ -84,6 +100,6 @@ class Exploiter:
 
 if __name__ == "__main__":
     scanner = Scanner()
-    scanner.get_open_ports("192.168.64.2")
+    print(scanner.scan_specific_port("192.168.64.2", "3306"))
     # exploiter = Exploiter()
     # exploiter.find_vulnerabilities_for_service("ftp")
