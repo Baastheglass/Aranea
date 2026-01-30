@@ -64,7 +64,7 @@ class Scanner:
             return result.stderr
     
     def scan_specific_port(self, ip_address, port):
-        result = subprocess.run(["rustscan", "-a", ip_address, "-p", port], capture_output=True, text=True)
+        result = subprocess.run(["rustscan", "-a", ip_address, "-p", port, "--", "-sV", "-sC"], capture_output=True, text=True)
         if(result.stdout):
             return result.stdout
         else:
@@ -74,7 +74,7 @@ class Scanner:
         ports = ""
         for port in ports:
             ports += f"{port},"
-        result = subprocess.run(["rustscan", "-a", ip_address, "-p", ports], capture_output=True, text=True)
+        result = subprocess.run(["rustscan", "-a", ip_address, "-p", ports, "--", "-sV", "-sC"], capture_output=True, text=True)
         if(result.stdout):
             return result.stdout
         else:

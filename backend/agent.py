@@ -64,6 +64,169 @@ class FormatterAgent:
         
         return result
     
+    def format_scan_specific_port_result(self, raw_result: str, ip_address: str, port: str) -> str:
+        """Parse and format scan_specific_port output with detailed service information"""
+        lines = raw_result.split('\n')
+        
+        # Initialize variables
+        port_state = None
+        service_name = None
+        service_version = None
+        nse_output = []
+        latency = None
+        
+        # Parse the nmap output
+        in_port_section = False
+        in_nse_output = False
+        current_nse_script = None
+        
+        for line in lines:
+            # Extract latency
+            if 'latency' in line.lower():
+                lat_match = re.search(r'\(([\d.]+)s latency\)', line)
+                if lat_match:
+                    latency = lat_match.group(1)
+            
+            # Find the PORT STATE SERVICE line (table header)
+            if 'PORT' in line and 'STATE' in line and 'SERVICE' in line:
+                in_port_section = True
+                continue
+            
+            # Parse port information line
+            if in_port_section and '/tcp' in line:
+                parts = line.split()
+                if len(parts) >= 4:
+                    port_state = parts[1]  # e.g., "open"
+                    service_name = parts[2]  # e.g., "mysql"
+                    service_version = ' '.join(parts[3:])  # Everything after service name
+                in_port_section = False
+                in_nse_output = True
+                continue
+            
+            # Parse NSE script output
+            if in_nse_output and line.strip().startswith('|'):
+                # This is NSE script output
+                nse_output.append(line.strip())
+            elif in_nse_output and not line.strip().startswith('|') and 'NSE:' not in line:
+                # End of NSE output
+                if line.strip() and not line.startswith('NSE:') and not line.startswith('Read data') and not line.startswith('Service detection') and not line.startswith('Nmap done'):
+                    in_nse_output = False
+        
+        # Format the output
+        result = f"## Port {port} Scan Results for {ip_address}\n\n"
+        
+        if not port_state:
+            result += f"❌ **Port {port} appears to be closed or filtered.**\n"
+            return result
+        
+        # Port status
+        status_emoji = "✅" if port_state == "open" else "⚠️"
+        result += f"{status_emoji} **Port Status:** {port_state.upper()}\n\n"
+        
+        # Service information
+        result += "### Service Information\n\n"
+        result += f"**Service:** {service_name}\n\n"
+        if service_version:
+            result += f"**Version:** {service_version}\n\n"
+        if latency:
+            result += f"**Latency:** {latency}s\n\n"
+        
+        # NSE Script Results
+        if nse_output:
+            result += "### Detailed Information (NSE Scripts)\n\n"
+            result += "```\n"
+            for line in nse_output:
+                result += line + "\n"
+            result += "```\n\n"
+        
+        # Extract specific information from NSE output
+        extra_info = self._extract_service_details(nse_output, service_name)
+        if extra_info:
+            result += "### Key Details\n\n"
+            for key, value in extra_info.items():
+                result += f"- **{key}:** {value}\n"
+            result += "\n"
+        
+        # Security recommendations
+        result += "### 🔍 Next Steps\n\n"
+        result += self._get_security_recommendations(service_name, service_version)
+        
+        return result
+    
+    def _extract_service_details(self, nse_lines: list, service: str) -> dict:
+        """Extract specific details from NSE script output based on service type"""
+        details = {}
+        
+        if service == 'mysql':
+            for line in nse_lines:
+                if 'Protocol:' in line:
+                    details['Protocol Version'] = line.split('Protocol:')[1].strip()
+                elif 'Version:' in line and 'Protocol' not in line:
+                    details['MySQL Version'] = line.split('Version:')[1].strip()
+                elif 'Thread ID:' in line:
+                    details['Thread ID'] = line.split('Thread ID:')[1].strip()
+                elif 'Status:' in line:
+                    details['Status'] = line.split('Status:')[1].strip()
+        
+        elif service in ['ssh', 'openssh']:
+            for line in nse_lines:
+                if 'protocol version' in line.lower():
+                    details['SSH Protocol'] = line.split(':')[1].strip()
+                elif 'key type' in line.lower():
+                    details['Key Type'] = line.split(':')[1].strip()
+        
+        elif service in ['http', 'https', 'http-proxy']:
+            for line in nse_lines:
+                if 'title:' in line.lower():
+                    details['Page Title'] = line.split('title:')[1].strip()
+                elif 'server:' in line.lower():
+                    details['Web Server'] = line.split('server:')[1].strip()
+        
+        elif service == 'ftp':
+            for line in nse_lines:
+                if 'anonymous' in line.lower():
+                    details['Anonymous Login'] = 'Enabled' if 'allowed' in line.lower() else 'Disabled'
+        
+        return details
+    
+    def _get_security_recommendations(self, service: str, version: str) -> str:
+        """Provide security recommendations based on service type"""
+        recommendations = []
+        
+        if service == 'mysql':
+            recommendations.append("- Check for default credentials (root with no password)")
+            recommendations.append("- Search for MySQL version-specific vulnerabilities using `find_vulnerabilities_for_service`")
+            recommendations.append("- Test for SQL injection vulnerabilities")
+            if version and '5.0' in version:
+                recommendations.append("- ⚠️ MySQL 5.0 is **very old** and likely has critical vulnerabilities")
+        
+        elif service in ['ssh', 'openssh']:
+            recommendations.append("- Test for weak SSH credentials")
+            recommendations.append("- Check if password authentication is enabled")
+            recommendations.append("- Verify SSH version for known exploits")
+        
+        elif service in ['http', 'https']:
+            recommendations.append("- Perform web application scanning")
+            recommendations.append("- Check for common web vulnerabilities (SQLi, XSS, CSRF)")
+            recommendations.append("- Enumerate directories and files")
+        
+        elif service == 'ftp':
+            recommendations.append("- Test anonymous FTP access")
+            recommendations.append("- Check for weak credentials")
+            recommendations.append("- Look for version-specific exploits")
+        
+        elif service == 'smb' or service == 'microsoft-ds':
+            recommendations.append("- Check for EternalBlue (MS17-010) vulnerability")
+            recommendations.append("- Enumerate SMB shares")
+            recommendations.append("- Test for weak credentials")
+        
+        else:
+            recommendations.append(f"- Search for known vulnerabilities: `find_vulnerabilities_for_service {service}`")
+            recommendations.append("- Check for default credentials")
+            recommendations.append("- Research service-specific attack vectors")
+        
+        return '\n'.join(recommendations)
+    
     def _get_service_name(self, port: str) -> str:
         """Map common port numbers to service names"""
         port_map = {
@@ -85,6 +248,11 @@ class FormatterAgent:
         if function_name == "scan_target":
             ip_address = function_arguments.get("ip_address", "target") if function_arguments else "target"
             return self.format_scan_target_result(raw_result, ip_address)
+        
+        elif function_name == "scan_specific_port":
+            ip_address = function_arguments.get("ip_address", "target") if function_arguments else "target"
+            port = function_arguments.get("port", "unknown") if function_arguments else "unknown"
+            return self.format_scan_specific_port_result(raw_result, ip_address, port)
         
         # For other functions, return raw result for now
         return f"**{function_name} Results:**\n\n```\n{raw_result}\n```"
