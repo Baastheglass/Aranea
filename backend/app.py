@@ -1,10 +1,36 @@
 import uvicorn
+import os
+import time
 from fastapi import FastAPI, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
+from dotenv import load_dotenv
+from pymetasploit3.msfrpc import MsfRpcClient
 from agent import Agent
+from agent_tools import Exploiter
 from db import Database
 from websocket_manager import ws_manager
+
+# Load environment variables
+load_dotenv()
+
+# Kill any existing msfrpcd processes first
+os.system("pkill -9 -f msfrpcd")
+time.sleep(1)
+
+# Initialize msfrpcd and MsfRpcClient at startup
+password = os.getenv("MSF_RPC_PASSWORD")
+port = os.getenv("MSF_RPC_PORT", "55552")
+cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"  # SSL enabled by default, -a binds to localhost
+ret = os.system(cmd)
+if ret == 0:
+    print("msfrpcd started successfully (exit code 0).")
+else:
+    print(f"msfrpcd exited with code {ret}.")
+
+time.sleep(3)  # Give msfrpcd more time to start up
+msf_client = MsfRpcClient(password, port=int(port), ssl=True)
+print("MsfRpcClient initialized successfully.")
 
 app = FastAPI()
 
@@ -17,8 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services lazily - connections will be made on first use
-agent = Agent()
+# Initialize services with msfrpcd client
+exploiter = Exploiter(msf_client)
+agent = Agent(exploiter=exploiter)
 db = Database()
 
 # Pydantic models for request validation
@@ -134,4 +161,4 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         ws_manager.disconnect(session_id)
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000)

