@@ -24,9 +24,120 @@ export default function ChatInterface({ username }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMessage]);
 
+  // Function to stop streaming
+  const stopStreaming = () => {
+    if (streamingIntervalRef.current) {
+      clearInterval(streamingIntervalRef.current);
+      streamingIntervalRef.current = null;
+    }
+    
+    // Add partial message if any
+    if (streamingMessage && streamingMessage.text) {
+      setMessages(prev => [...prev, {
+        ...streamingMessage,
+        wasStreamed: true
+      }]);
+    }
+    
+    setStreamingMessage(null);
+    setIsTyping(false);
+  };
+
+  // Listen for ESC key to stop streaming
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && (isTyping || streamingMessage)) {
+        stopStreaming();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isTyping, streamingMessage]);
+
+  // Function to format find_website_servers results
+  const formatWebsiteServersResults = (text) => {
+    try {
+      // Check if this is a find_website_servers result
+      if (!text.includes('find_website_servers Results:')) {
+        return text;
+      }
+
+      // Extract the content between triple backticks
+      const jsonMatch = text.match(/```\s*([\s\S]*?)\s*```/);
+      if (!jsonMatch) return text;
+
+      let pythonDict = jsonMatch[1].trim();
+      
+      // Convert Python dict to JSON more carefully
+      // Step 1: Replace Python boolean/null values
+      pythonDict = pythonDict
+        .replace(/\bNone\b/g, 'null')
+        .replace(/\bTrue\b/g, 'true')
+        .replace(/\bFalse\b/g, 'false');
+      
+      // Step 2: Handle single quotes - need to be careful to not break strings
+      // Replace single quotes with double quotes
+      pythonDict = pythonDict.replace(/'/g, '"');
+      
+      // Try to parse
+      const data = JSON.parse(pythonDict);
+      
+      // Format as readable text
+      let formatted = '**Website Servers Found:**\n\n';
+      let count = 1;
+      
+      for (const [key, server] of Object.entries(data)) {
+        formatted += `═══════════════════════════════════════\n`;
+        formatted += `[${count}] ${server.ip_address}\n`;
+        formatted += `═══════════════════════════════════════\n`;
+        
+        if (server.hostnames && server.hostnames.length > 0) {
+          formatted += `Hostnames:\n`;
+          const hostnames = Array.isArray(server.hostnames) ? server.hostnames : [server.hostnames];
+          hostnames.forEach(h => formatted += `  • ${h}\n`);
+        }
+        
+        formatted += `\nOrganization: ${server.organization}\n`;
+        formatted += `Location: ${server.location.city}, ${server.location.country}\n`;
+        
+        if (server.technologies && server.technologies.length > 0) {
+          formatted += `Technologies: ${server.technologies.join(', ')}\n`;
+        }
+        
+        if (server.ssl_certificate && server.ssl_certificate.issued_to && server.ssl_certificate.issued_to.common_name) {
+          formatted += `\nSSL Certificate:\n`;
+          formatted += `  • Issued To: ${server.ssl_certificate.issued_to.common_name}\n`;
+          if (server.ssl_certificate.issued_by) {
+            formatted += `  • Issued By: ${server.ssl_certificate.issued_by.common_name}\n`;
+          }
+          if (server.ssl_certificate.ssl_versions) {
+            formatted += `  • SSL Versions: ${server.ssl_certificate.ssl_versions.join(', ')}\n`;
+          }
+        }
+        
+        formatted += `\nLast Seen: ${server.last_seen}\n`;
+        formatted += '\n';
+        count++;
+      }
+      
+      formatted += `\nTotal servers found: ${count - 1}`;
+      
+      return formatted;
+    } catch (error) {
+      console.error('Error formatting website servers results:', error);
+      console.error('Error details:', error.message);
+      // Return original text if parsing fails
+      return text;
+    }
+  };
+
   // Function to stream text character by character
   const streamText = (text, messageId) => {
     return new Promise((resolve) => {
+      // Format the text if it's a find_website_servers result
+      const formattedText = formatWebsiteServersResults(text);
+      
       let index = 0;
       const newMessage = {
         id: messageId || Date.now() + Math.random(),
@@ -42,8 +153,8 @@ export default function ChatInterface({ username }) {
       }
       
       streamingIntervalRef.current = setInterval(() => {
-        if (index < text.length) {
-          const char = text[index];
+        if (index < formattedText.length) {
+          const char = formattedText[index];
           setStreamingMessage(prev => ({
             ...prev,
             text: prev.text + char
@@ -56,13 +167,13 @@ export default function ChatInterface({ username }) {
           // Add completed message to messages array with wasStreamed flag
           setMessages(prev => [...prev, {
             ...newMessage,
-            text: text,
+            text: formattedText,
             wasStreamed: true
           }]);
           setStreamingMessage(null);
           resolve();
         }
-      }, 20); // Adjust speed here (milliseconds per character)
+      }, 5); // Adjust speed here (milliseconds per character)
     });
   };
 
@@ -94,8 +205,10 @@ export default function ChatInterface({ username }) {
             }
           }
         }
-        // Stream the response
-        await streamText(responseText);
+        // Stream the response only if not empty
+        if (responseText && String(responseText).trim()) {
+          await streamText(responseText);
+        }
       } else if (eventData.event === "text_response_with_function") {
         setIsTyping(true);
         // Extract response text from the data
@@ -109,8 +222,10 @@ export default function ChatInterface({ username }) {
             }
           }
         }
-        // Stream the response
-        await streamText(responseText);
+        // Stream the response only if not empty
+        if (responseText && String(responseText).trim()) {
+          await streamText(responseText);
+        }
       } else if (eventData.event === "function_result") {
         setIsTyping(false);
         // Format the result data
@@ -121,17 +236,24 @@ export default function ChatInterface({ username }) {
         } else {
           resultText = JSON.stringify(eventData.data, null, 2);
         }
-        // Stream the result
-        await streamText(resultText);
+        // Stream the result only if not empty
+        if (resultText && resultText.trim()) {
+          await streamText(resultText);
+        }
       } else if (eventData.event === "response" || eventData.event === "error") {
         setIsTyping(false);
         const responseText = eventData.data.message || eventData.data.text || JSON.stringify(eventData.data);
-        // Stream the response
-        await streamText(responseText);
+        // Stream the response only if not empty
+        if (responseText && responseText.trim()) {
+          await streamText(responseText);
+        }
       } else if (eventData.event === "tool_call" || eventData.event === "tool_result") {
         // Optionally display tool calls
         const toolText = `[${eventData.event}] ${eventData.data.message || JSON.stringify(eventData.data)}`;
-        await streamText(toolText);
+        // Stream tool info only if not empty
+        if (toolText && toolText.trim()) {
+          await streamText(toolText);
+        }
       }
     };
     

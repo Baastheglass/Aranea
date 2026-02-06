@@ -94,6 +94,9 @@ AVAILABLE FUNCTIONS:
 - get_sessions(): Get all active Metasploit sessions with their details
 - execute_command(session_id: int, command: str): Execute a command on an active session
 - stop_session(session_id: int): Stop/kill an active session
+- flood(target_ip: str, target_port: str): Launch a flood attack against a target IP and port (runs in background)
+- stop_flood(attack_id: str OR target_ip: str, target_port: str): Stop a running flood attack by attack_id or target
+- list_active_attacks(): List all currently active flood attacks with their PIDs and status
 - generate_pentest_report(engagement_info: dict): Generate a comprehensive penetration testing report from all testing activities
 - get_engagement_summary(): Get a quick statistical summary of the current engagement
 
@@ -173,6 +176,21 @@ User: "Close session 1"
 response: I'll terminate session 1.
 function_to_execute: stop_session
 function_arguments: {"session_id": 1}
+
+User: "Flood 192.168.1.100 port 80"
+response: I'll launch a flood attack against 192.168.1.100 on port 80. This will run in the background until you stop it.
+function_to_execute: flood
+function_arguments: {"target_ip": "192.168.1.100", "target_port": "80"}
+
+User: "Stop the flood attack on 192.168.1.100:80"
+response: I'll stop the flood attack targeting 192.168.1.100:80.
+function_to_execute: stop_flood
+function_arguments: {"attack_id": "192.168.1.100:80"}
+
+User: "Show active attacks"
+response: I'll list all currently running flood attacks for you.
+function_to_execute: list_active_attacks
+function_arguments: null
 
 User: "Generate a penetration test report"
 response: I'll generate a comprehensive penetration testing report based on all the activities we've conducted. This report will include findings, vulnerabilities, proof of concepts, and remediation recommendations.

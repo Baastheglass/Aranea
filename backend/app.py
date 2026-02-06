@@ -1,6 +1,7 @@
 import uvicorn
 import os
 import time
+import subprocess
 from fastapi import FastAPI, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
@@ -14,23 +15,76 @@ from websocket_manager import ws_manager
 # Load environment variables
 load_dotenv()
 
-# Kill any existing msfrpcd processes first
-os.system("pkill -9 -f msfrpcd")
-time.sleep(1)
+def is_port_in_use(port):
+    """Check if a port is in use"""
+    result = subprocess.run(
+        ["lsof", "-i", f":{port}", "-t"],
+        capture_output=True,
+        text=True
+    )
+    return bool(result.stdout.strip())
+
+def kill_process_on_port(port):
+    """Kill any process using the specified port"""
+    result = subprocess.run(
+        ["lsof", "-i", f":{port}", "-t"],
+        capture_output=True,
+        text=True
+    )
+    pids = result.stdout.strip().split('\n')
+    for pid in pids:
+        if pid:
+            print(f"Killing process {pid} on port {port}")
+            subprocess.run(["kill", "-9", pid])
+    time.sleep(2)  # Wait for processes to fully terminate
 
 # Initialize msfrpcd and MsfRpcClient at startup
 password = os.getenv("MSF_RPC_PASSWORD")
 port = os.getenv("MSF_RPC_PORT", "55552")
-cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"  # SSL enabled by default, -a binds to localhost
+
+# First, kill any existing msfrpcd processes
+print("Checking for existing msfrpcd processes...")
+os.system("pkill -9 -f msfrpcd")
+time.sleep(2)
+
+# Also kill anything on the RPC port
+if is_port_in_use(port):
+    print(f"Port {port} is in use, killing process...")
+    kill_process_on_port(port)
+
+# Now start msfrpcd
+print(f"Starting msfrpcd on port {port}...")
+cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"
 ret = os.system(cmd)
 if ret == 0:
-    print("msfrpcd started successfully (exit code 0).")
+    print("✓ msfrpcd started successfully")
 else:
-    print(f"msfrpcd exited with code {ret}.")
+    print(f"⚠ msfrpcd exited with code {ret}")
 
-time.sleep(3)  # Give msfrpcd more time to start up
-msf_client = MsfRpcClient(password, port=int(port), ssl=True)
-print("MsfRpcClient initialized successfully.")
+# Wait for msfrpcd to fully start
+print("Waiting for msfrpcd to initialize...")
+time.sleep(5)
+
+# Initialize MsfRpcClient with retry logic
+msf_client = None
+max_retries = 3
+retry_delay = 3
+
+for attempt in range(max_retries):
+    try:
+        print(f"Attempting to connect to msfrpcd (attempt {attempt + 1}/{max_retries})...")
+        msf_client = MsfRpcClient(password, port=int(port), ssl=True)
+        print("✓ MsfRpcClient initialized successfully")
+        break
+    except Exception as e:
+        print(f"⚠ Connection attempt {attempt + 1} failed: {e}")
+        if attempt < max_retries - 1:
+            print(f"Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+        else:
+            print("✗ Failed to connect to msfrpcd after all retries")
+            print("⚠ Starting server without Metasploit functionality...")
+            msf_client = None
 
 app = FastAPI()
 
@@ -43,9 +97,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services with msfrpcd client
-exploiter = Exploiter(msf_client)
-agent = Agent(exploiter=exploiter)
+# Initialize services with msfrpcd client (may be None if connection failed)
+if msf_client:
+    exploiter = Exploiter(msf_client)
+    agent = Agent(exploiter=exploiter)
+else:
+    print("⚠ Starting with limited functionality (no Metasploit)")
+    exploiter = None
+    agent = Agent(exploiter=None)
+    
 db = Database()
 
 # Pydantic models for request validation

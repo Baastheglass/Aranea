@@ -3,7 +3,7 @@ import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-from agent_tools import Scanner, Exploiter
+from agent_tools import Scanner, Exploiter, Attacker
 from datetime import datetime
 from constants import DOCUMENTER_AGENT_PROMPT, AGENT_PROMPT
 
@@ -507,6 +507,10 @@ class Agent:
         if exploiter:
             callables = [name for name in dir(Exploiter) if callable(getattr(Exploiter, name))]
             self.exploiter_functions.extend(callables)
+        self.attacker = Attacker()
+        self.attacker_functions = list()
+        callables = [name for name in dir(Attacker) if callable(getattr(Attacker, name))]
+        self.attacker_functions.extend(callables)
         self.documenter_functions = ['generate_pentest_report', 'get_engagement_summary']
         self.prompt = AGENT_PROMPT
         
@@ -531,6 +535,7 @@ class Agent:
     
     async def respond(self, query, ws_manager = None, session_id = None):
         response = self.generate(query)
+        print("Unformatted Agent response received:", response)
         # Simple parsing logic to extract response, function_to_execute, and function_arguments
         try:
             response_lines = response.split('\n')
@@ -618,6 +623,31 @@ class Agent:
                     
                     await ws_manager.send_event(session_id, "function_result", formatted_result)
                     print("Formatted result sent to client")
+                elif(function_to_execute and function_to_execute in self.attacker_functions):
+                    await ws_manager.send_event(session_id, "text_response_with_function", response_text)
+                    print(f"Executing attacker function: {function_to_execute}")
+                    print(f"With arguments: {function_arguments}")
+                    function = getattr(self.attacker, function_to_execute)
+                    # Call function with or without arguments
+                    if function_arguments:
+                        result = function(**function_arguments)
+                    else:
+                        result = function()
+                    print("Raw attacker function result:", result)
+                    
+                    # Format the result
+                    formatted_result = self.formatter.format_result(
+                        function_name=function_to_execute,
+                        function_arguments=function_arguments,
+                        raw_result=str(result)
+                    )
+                    
+                    # Add results to history entry
+                    history_entry["function_result"] = str(result)
+                    history_entry["formatted_result"] = formatted_result
+                    
+                    await ws_manager.send_event(session_id, "function_result", formatted_result)
+                    print("Attacker result sent to client")
                 elif(function_to_execute and function_to_execute in self.documenter_functions):
                     await ws_manager.send_event(session_id, "text_response_with_function", response_text)
                     print(f"Executing documenter function: {function_to_execute}")
@@ -670,6 +700,10 @@ class Agent:
                         if not self.exploiter:
                             raise RuntimeError("Exploiter instance not initialized")
                         function = getattr(self.exploiter, function_to_execute)
+                        result = function(**function_arguments) if function_arguments else function()
+                        history_entry["function_result"] = str(result)
+                    elif function_to_execute in self.attacker_functions:
+                        function = getattr(self.attacker, function_to_execute)
                         result = function(**function_arguments) if function_arguments else function()
                         history_entry["function_result"] = str(result)
                     elif function_to_execute in self.documenter_functions:
