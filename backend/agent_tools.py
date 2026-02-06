@@ -40,7 +40,7 @@ class Scanner:
                         continue
                     
                     print("Network being scanned: ", network)
-                    result = subprocess.run(["rustscan", "-a", str(network)], capture_output=True, text=True)
+                    result = subprocess.run(["sudo", "masscan", str(network), "-p80", "--rate", "5000"], capture_output=True, text=True)
                     return result.stdout if result.stdout else result.stderr
                 except ValueError:
                     continue
@@ -81,13 +81,6 @@ class Scanner:
         else:
             return result.stderr
         
-    def get_running_services(self, ip_address):
-        result = subprocess.run(["nmap", "-sV", ip_address], capture_output=True, text=True)
-        if(result.stdout):
-            return result.stdout
-        else:
-            return result.stderr
-
 class Exploiter:
     def __init__(self, msf_client=None):
         if msf_client is None:
@@ -269,31 +262,39 @@ class Exploiter:
                 'message': f'Failed to stop session: {str(e)}'
             }
 
+class Attacker:
+    def __init__(self):
+        pass
+    
+    def perform_attack(self, target_ip):
+        # Placeholder for attack logic
+        return f"Performing attack on {target_ip}"
+    
 if __name__ == "__main__":
     load_dotenv()
     
-    # Kill any existing msfrpcd processes
-    os.system("pkill -9 -f msfrpcd")
-    import time
-    time.sleep(1)
+    # # Kill any existing msfrpcd processes
+    # os.system("pkill -9 -f msfrpcd")
+    # import time
+    # time.sleep(1)
     
-    # Start msfrpcd
-    password = os.getenv("MSF_RPC_PASSWORD")
-    port = os.getenv("MSF_RPC_PORT", "55552")
-    cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"
-    ret = os.system(cmd)
-    if ret == 0:
-        print("msfrpcd started successfully")
-    else:
-        print(f"msfrpcd exited with code {ret}")
+    # # Start msfrpcd
+    # password = os.getenv("MSF_RPC_PASSWORD")
+    # port = os.getenv("MSF_RPC_PORT", "55552")
+    # cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"
+    # ret = os.system(cmd)
+    # if ret == 0:
+    #     print("msfrpcd started successfully")
+    # else:
+    #     print(f"msfrpcd exited with code {ret}")
     
-    time.sleep(3)
+    # time.sleep(3)
     
-    # Initialize MsfRpcClient and Exploiter
-    msf_client = MsfRpcClient(password, port=int(port), ssl=True)
-    exploiter = Exploiter(msf_client)
+    # # Initialize MsfRpcClient and Exploiter
+    # msf_client = MsfRpcClient(password, port=int(port), ssl=True)
+    # exploiter = Exploiter(msf_client)
     
     # Test
     scanner = Scanner()
-    print(scanner.scan_specific_port("192.168.64.2", "3306"))
-    print(exploiter.find_vulnerabilities_for_service("vsftpd"))
+    print(scanner.scan_entire_network())
+    #print(exploiter.find_vulnerabilities_for_service("vsftpd"))

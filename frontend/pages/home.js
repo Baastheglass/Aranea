@@ -20,7 +20,7 @@ export default function Home() {
   };
 
   const handleAccessTerminal = () => {
-    router.push("/chat");
+    router.push("/loading");
   };
 
   if (!username) return null;
