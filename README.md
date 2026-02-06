@@ -1,4 +1,4 @@
-# Sentinel - Aranea Terminal Interface
+# Aranea Terminal Interface
 
 A terminal-style chat interface connected to a Gemini-powered backend with MongoDB authentication.
 
