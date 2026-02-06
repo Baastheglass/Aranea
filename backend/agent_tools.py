@@ -5,8 +5,8 @@ import ipaddress
 import re
 from pymetasploit3.msfrpc import MsfRpcClient
 from dotenv import load_dotenv
-from wappalyzer import analyze
 import time
+from shodan_search import ShodanScraper
 
 def get_network_ips():
     for iface in netifaces.interfaces():
@@ -82,15 +82,25 @@ class Scanner:
         else:
             return result.stderr
     
-    def get_website_technologies(self, url):
+    def find_website_servers(self, hostname):
+        """
+        Find all servers associated with a website using Shodan
+        
+        Args:
+            hostname: The hostname to search for (e.g., "example.com")
+        
+        Returns:
+            Dictionary containing information about each server found
+        """
         try:
-            results = analyze(
-            url=url,
-            scan_type='full',  # 'fast', 'balanced', or 'full'
-            threads=3)
-            return results
+            scraper = ShodanScraper()
+            servers = scraper.get_website_servers(hostname)
+            return servers
         except Exception as e:
-            return f"Error analyzing website: {str(e)}"
+            return {
+                'error': str(e),
+                'message': f'Failed to search Shodan: {str(e)}'
+            }
         
 class Exploiter:
     def __init__(self, msf_client=None):
@@ -322,5 +332,5 @@ if __name__ == "__main__":
     # print(scanner.scan_entire_network())
     #print(exploiter.find_vulnerabilities_for_service("vsftpd"))
     attacker = Attacker()
-    print(scanner.get_website_technologies("https://anonymate-site.vercel.app/"))
+    print(scanner.find_website_servers("olx.com.pk"))
     #print(attacker.ddos("192.168.100.102", "3000"))

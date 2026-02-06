@@ -88,6 +88,7 @@ AVAILABLE FUNCTIONS:
 - scan_specific_port(ip_address: str, port: str): Scan a specific port on a target IP
 - scan_specific_ports(ip_address: str, ports: list): Scan multiple specific ports on a target IP
 - get_running_services(ip_address: str): Identify services and versions running on open ports of a target
+- find_website_servers(hostname: str): Find all servers associated with a website using Shodan (returns IP addresses, locations, SSL certificates, technologies)
 - find_vulnerabilities_for_service(service_name: str): Search for known vulnerabilities for a specific service
 - run_exploit(exploit_name: str, target_ip: str, options: dict): Execute a Metasploit exploit against a target with specified options
 - get_sessions(): Get all active Metasploit sessions with their details
@@ -137,6 +138,16 @@ User: "Check what services are running on 10.0.0.5"
 response: I'll identify all services and their versions running on 10.0.0.5.
 function_to_execute: get_running_services
 function_arguments: {"ip_address": "10.0.0.5"}
+
+User: "Find servers for olx.com.pk"
+response: I'll search Shodan to find all servers associated with olx.com.pk, including their IP addresses, locations, SSL certificates, and technologies.
+function_to_execute: find_website_servers
+function_arguments: {"hostname": "olx.com.pk"}
+
+User: "Search Shodan for example.com"
+response: I'll use Shodan to discover all publicly accessible servers associated with example.com.
+function_to_execute: find_website_servers
+function_arguments: {"hostname": "example.com"}
 
 User: "Find vulnerabilities for Apache"
 response: I'll search for known vulnerabilities affecting Apache.

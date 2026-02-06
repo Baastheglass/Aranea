@@ -398,8 +398,99 @@ class FormatterAgent:
             port = function_arguments.get("port", "unknown") if function_arguments else "unknown"
             return self.format_scan_specific_port_result(raw_result, ip_address, port)
         
+        elif function_name == "find_website_servers":
+            hostname = function_arguments.get("hostname", "website") if function_arguments else "website"
+            return self.format_find_website_servers_result(raw_result, hostname)
+        
         # For other functions, return raw result for now
         return f"**{function_name} Results:**\n\n```\n{raw_result}\n```"
+    
+    def format_find_website_servers_result(self, raw_result: str, hostname: str) -> str:
+        """Format find_website_servers output into a readable summary"""
+        import json
+        
+        try:
+            # Parse the result if it's a JSON string
+            if isinstance(raw_result, str):
+                servers = json.loads(raw_result)
+            else:
+                servers = raw_result
+            
+            # Check if there's an error
+            if isinstance(servers, dict) and 'error' in servers:
+                return f"❌ **Error searching Shodan for {hostname}:**\n\n{servers.get('message', servers['error'])}"
+            
+            if not servers or len(servers) == 0:
+                return f"**No servers found for {hostname}** on Shodan.\n\nThis could mean:\n- The domain is not publicly accessible\n- No servers are indexed by Shodan yet\n- The hostname is incorrect"
+            
+            result = f"## Shodan Results for {hostname}\n\n"
+            result += f"**Found {len(servers)} server(s):**\n\n"
+            
+            for idx, (ip, info) in enumerate(servers.items(), 1):
+                result += f"### Server {idx}: {ip}\n\n"
+                
+                # Last seen
+                if info.get('last_seen'):
+                    result += f"**Last Seen:** {info['last_seen']}\n\n"
+                
+                # Hostnames
+                if info.get('hostnames'):
+                    result += f"**Hostnames:**\n"
+                    for hostname_entry in info['hostnames']:
+                        result += f"- {hostname_entry}\n"
+                    result += "\n"
+                
+                # Organization
+                if info.get('organization'):
+                    result += f"**Organization:** {info['organization']}\n\n"
+                
+                # Location
+                if info.get('location'):
+                    loc = info['location']
+                    if loc.get('city') and loc.get('country'):
+                        result += f"**Location:** {loc['city']}, {loc['country']}\n\n"
+                    elif loc.get('country'):
+                        result += f"**Location:** {loc['country']}\n\n"
+                
+                # Technologies
+                if info.get('technologies'):
+                    result += f"**Technologies:** {', '.join(info['technologies'])}\n\n"
+                
+                # Tags
+                if info.get('tags'):
+                    result += f"**Tags:** {', '.join(info['tags'])}\n\n"
+                
+                # SSL Certificate
+                if info.get('ssl_certificate'):
+                    ssl = info['ssl_certificate']
+                    if ssl.get('issued_to') or ssl.get('issued_by'):
+                        result += f"**SSL Certificate:**\n"
+                        if ssl.get('issued_to', {}).get('common_name'):
+                            result += f"- Common Name: {ssl['issued_to']['common_name']}\n"
+                        if ssl.get('issued_by', {}).get('common_name'):
+                            result += f"- Issued By: {ssl['issued_by']['common_name']}\n"
+                        if ssl.get('issued_by', {}).get('organization'):
+                            result += f"- CA: {ssl['issued_by']['organization']}\n"
+                        if ssl.get('ssl_versions'):
+                            result += f"- SSL/TLS Versions: {', '.join(ssl['ssl_versions'])}\n"
+                        result += "\n"
+                
+                # Banner (HTTP response)
+                if info.get('banner'):
+                    result += f"**HTTP Response:**\n```\n{info['banner']}\n```\n\n"
+                
+                result += "---\n\n"
+            
+            result += f"\n**💡 Next Steps:**\n"
+            result += f"- Scan discovered IPs: `scan_target <ip_address>`\n"
+            result += f"- Identify services: `scan_specific_port <ip_address> <port>`\n"
+            result += f"- Check for vulnerabilities on identified services\n"
+            
+            return result
+            
+        except Exception as e:
+            # If parsing fails, return raw result
+            return f"**find_website_servers Results:**\n\n```\n{raw_result}\n```\n\nError formatting results: {str(e)}"
 
 class Agent:
     def __init__(self, exploiter=None):
@@ -459,6 +550,10 @@ class Agent:
                         # Parse the dictionary string
                         import ast
                         function_arguments = ast.literal_eval(args)
+            
+            # Ensure response_text is never empty
+            if not response_text:
+                response_text = "I'm processing your request."
             
             # Initialize history entry
             history_entry = {
