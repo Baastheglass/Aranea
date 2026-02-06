@@ -5,6 +5,7 @@ import ipaddress
 import re
 from pymetasploit3.msfrpc import MsfRpcClient
 from dotenv import load_dotenv
+from wappalyzer import analyze
 import time
 
 def get_network_ips():
@@ -80,6 +81,16 @@ class Scanner:
             return result.stdout
         else:
             return result.stderr
+    
+    def get_website_technologies(self, url):
+        try:
+            results = analyze(
+            url=url,
+            scan_type='full',  # 'fast', 'balanced', or 'full'
+            threads=3)
+            return results
+        except Exception as e:
+            return f"Error analyzing website: {str(e)}"
         
 class Exploiter:
     def __init__(self, msf_client=None):
@@ -272,7 +283,16 @@ class Attacker:
             return result.stdout
         else:
             return result.stderr
+
+class Reporter:
+    def __init__(self):
+        pass
     
+    def report_vulnerability(self, vulnerability_info):
+        # For demonstration, we'll just print the vulnerability info
+        # In a real implementation, this could save to a database or send to an API
+        print("Vulnerability Reported:")
+        print(vulnerability_info)
 if __name__ == "__main__":
     load_dotenv()
     
@@ -298,8 +318,9 @@ if __name__ == "__main__":
     # exploiter = Exploiter(msf_client)
     
     # Test
-    # scanner = Scanner()
+    scanner = Scanner()
     # print(scanner.scan_entire_network())
     #print(exploiter.find_vulnerabilities_for_service("vsftpd"))
     attacker = Attacker()
-    print(attacker.ddos("192.168.100.102", "3000"))
+    print(scanner.get_website_technologies("https://anonymate-site.vercel.app/"))
+    #print(attacker.ddos("192.168.100.102", "3000"))

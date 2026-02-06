@@ -4,6 +4,150 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from agent_tools import Scanner, Exploiter
+from datetime import datetime
+from constants import DOCUMENTER_AGENT_PROMPT, AGENT_PROMPT
+
+class DocumenterAgent:
+    def __init__(self):
+        load_dotenv()
+        self._client = None
+        self._chat = None
+        self.prompt = DOCUMENTER_AGENT_PROMPT
+    
+    @property
+    def client(self):
+        if self._client is None:
+            documenter_api_key = os.getenv('GOOGLE_DOCUMENTER_API_KEY')
+            self._client = genai.Client(api_key=documenter_api_key)
+        return self._client
+    
+    @property
+    def chat(self):
+        if self._chat is None:
+            self._chat = self.client.chats.create(model="gemini-2.5-flash")
+        return self._chat
+    
+    def generate_report(self, history_data: list, engagement_info: dict = None) -> str:
+        """
+        Generate a comprehensive penetration testing report from agent history
+        
+        Args:
+            history_data: List of history entries from Agent.get_history()
+            engagement_info: Optional dict with engagement metadata (client, date, tester, etc.)
+        
+        Returns:
+            Formatted penetration testing report in Markdown
+        """
+        # Prepare engagement metadata
+        if engagement_info is None:
+            engagement_info = {}
+        
+        engagement_info.setdefault('date', datetime.now().strftime('%Y-%m-%d'))
+        engagement_info.setdefault('tester', 'Aranea Security Team')
+        engagement_info.setdefault('client', 'Client Organization')
+        engagement_info.setdefault('engagement_type', 'Internal Network Penetration Test')
+        
+        # Format history for the AI
+        formatted_history = self._format_history_for_report(history_data)
+        
+        # Create the prompt for report generation
+        report_prompt = f"""Generate a comprehensive penetration testing report based on the following engagement information and testing activities:
+
+ENGAGEMENT INFORMATION:
+- Client: {engagement_info['client']}
+- Engagement Type: {engagement_info['engagement_type']}
+- Test Date: {engagement_info['date']}
+- Performed By: {engagement_info['tester']}
+
+TESTING ACTIVITIES AND RESULTS:
+{formatted_history}
+
+Please generate a complete, professional penetration testing report following the structure and guidelines provided in your system instructions. Include all sections, proper severity ratings, detailed findings with evidence, and actionable recommendations."""
+
+        # Generate the report using the AI
+        response = self.chat.send_message(
+            message=report_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=self.prompt,
+                temperature=0.4  # Lower temperature for more consistent, professional output
+            )
+        )
+        
+        return response.text
+    
+    def _format_history_for_report(self, history_data: list) -> str:
+        """Format history data into a readable structure for the AI"""
+        if not history_data:
+            return "No testing activities recorded."
+        
+        formatted = []
+        for idx, entry in enumerate(history_data, 1):
+            formatted.append(f"\n{'='*60}")
+            formatted.append(f"ACTIVITY #{idx}")
+            formatted.append(f"{'='*60}")
+            formatted.append(f"\nUser Query: {entry['query']}")
+            formatted.append(f"\nAgent Response: {entry['response']}")
+            
+            if entry['function_executed']:
+                formatted.append(f"\nFunction Executed: {entry['function_executed']}")
+                
+                if entry['function_arguments']:
+                    formatted.append(f"Function Arguments: {entry['function_arguments']}")
+                
+                if entry['function_result']:
+                    formatted.append(f"\nRaw Results:")
+                    formatted.append("```")
+                    formatted.append(str(entry['function_result']))
+                    formatted.append("```")
+                
+                if entry['formatted_result']:
+                    formatted.append(f"\nFormatted Output:")
+                    formatted.append(entry['formatted_result'])
+            else:
+                formatted.append("\nNo function executed (conversational interaction)")
+        
+        return '\n'.join(formatted)
+    
+    def generate_quick_summary(self, history_data: list) -> dict:
+        """Generate a quick statistical summary of the engagement"""
+        if not history_data:
+            return {
+                'total_interactions': 0,
+                'functions_executed': 0,
+                'scans_performed': 0,
+                'exploits_attempted': 0,
+                'unique_targets': set()
+            }
+        
+        stats = {
+            'total_interactions': len(history_data),
+            'functions_executed': 0,
+            'scans_performed': 0,
+            'exploits_attempted': 0,
+            'unique_targets': set()
+        }
+        
+        for entry in history_data:
+            if entry['function_executed']:
+                stats['functions_executed'] += 1
+                
+                # Count specific activity types
+                if 'scan' in entry['function_executed'].lower():
+                    stats['scans_performed'] += 1
+                
+                if 'exploit' in entry['function_executed'].lower() or 'run_exploit' in entry['function_executed']:
+                    stats['exploits_attempted'] += 1
+                
+                # Extract target IPs
+                if entry['function_arguments']:
+                    if 'ip_address' in entry['function_arguments']:
+                        stats['unique_targets'].add(entry['function_arguments']['ip_address'])
+                    if 'target_ip' in entry['function_arguments']:
+                        stats['unique_targets'].add(entry['function_arguments']['target_ip'])
+        
+        stats['unique_targets'] = list(stats['unique_targets'])
+        
+        return stats
 
 class FormatterAgent:
     def __init__(self):
@@ -263,6 +407,7 @@ class Agent:
         self._client = None
         self._chat = None
         self.formatter = FormatterAgent()
+        self.history = []
         self.scanner_functions = list()
         callables = [name for name in dir(Scanner) if callable(getattr(Scanner, name))]
         self.scanner_functions.extend(callables)
@@ -271,102 +416,14 @@ class Agent:
         if exploiter:
             callables = [name for name in dir(Exploiter) if callable(getattr(Exploiter, name))]
             self.exploiter_functions.extend(callables)
-        self.prompt = """You are Aranea, an expert penetration testing assistant designed to help security professionals conduct network reconnaissance and vulnerability assessments. Your role is to guide users through pentesting activities using available tools and provide clear, actionable insights.
-
-                        AVAILABLE FUNCTIONS:
-                        - scan_entire_network(): Scan the entire local network to discover active hosts
-                        - get_ip_of_website(website: str): Resolve the IP address of a domain/website
-                        - scan_target(ip_address: str): Scan all ports on a target IP to identify open ports
-                        - scan_specific_port(ip_address: str, port: str): Scan a specific port on a target IP
-                        - scan_specific_ports(ip_address: str, ports: list): Scan multiple specific ports on a target IP
-                        - get_running_services(ip_address: str): Identify services and versions running on open ports of a target
-                        - find_vulnerabilities_for_service(service_name: str): Search for known vulnerabilities for a specific service
-                        - run_exploit(exploit_name: str, target_ip: str, options: dict): Execute a Metasploit exploit against a target with specified options
-                        - get_sessions(): Get all active Metasploit sessions with their details
-                        - execute_command(session_id: int, command: str): Execute a command on an active session
-                        - stop_session(session_id: int): Stop/kill an active session
-
-                        RESPONSE FORMAT:
-                        You must always respond in this exact format:
-                        response: <your detailed response to the user - REQUIRED, never null>
-                        function_to_execute: <function_name or null>
-                        function_arguments: <dict of arguments or null>
-
-                        CRITICAL RULES:
-                        1. The 'response' field is ALWAYS required and must never be null or empty - always provide a helpful message to the user
-                        2. Analyze the user's request carefully to determine if a function needs to be executed
-                        3. If the user wants to scan hosts, check ports, identify services, find vulnerabilities, or run exploits, select the appropriate function
-                        4. Extract any parameters (IP addresses, domains, service names, exploit names, etc.) from the user's message and provide them as function_arguments
-                        5. Provide clear, professional guidance in your response
-                        6. If multiple steps are needed, suggest the logical next step and return only ONE function at a time
-                        7. If no function execution is needed (e.g., user is asking a question or having a conversation), return null for both function_to_execute and function_arguments, but ALWAYS provide a response
-                        8. Always prioritize security best practices and ethical hacking principles
-                        9. Be concise but informative in your responses
-                        10. Format function_arguments as a valid Python dictionary, e.g., {"ip_address": "192.168.1.100"} or {"service_name": "apache"}
-                        11. For run_exploit, options should include required parameters like LHOST, LPORT, and payload if needed
-                        12. After running an exploit, the session_id will be returned - use this to execute commands on the compromised host
-                        13. When executing commands, always use execute_command with the session_id from the exploit result
-
-                        EXAMPLES:
-                        User: "Scan the network for active hosts"
-                        response: I'll scan your local network to discover all active hosts. This will help identify potential targets for further analysis.
-                        function_to_execute: scan_entire_network
-                        function_arguments: null
-
-                        User: "What ports are open on 192.168.1.100?"
-                        response: I'll perform a comprehensive port scan on 192.168.1.100 to identify all open ports.
-                        function_to_execute: scan_target
-                        function_arguments: {"ip_address": "192.168.1.100"}
-
-                        User: "Scan port 80 on 10.0.0.5"
-                        response: I'll scan port 80 on 10.0.0.5 to check if it's open and identify the service running on it.
-                        function_to_execute: scan_specific_port
-                        function_arguments: {"ip_address": "10.0.0.5", "port": "80"}
-
-                        User: "Check what services are running on 10.0.0.5"
-                        response: I'll identify all services and their versions running on 10.0.0.5.
-                        function_to_execute: get_running_services
-                        function_arguments: {"ip_address": "10.0.0.5"}
-
-                        User: "Find vulnerabilities for Apache"
-                        response: I'll search for known vulnerabilities affecting Apache.
-                        function_to_execute: find_vulnerabilities_for_service
-                        function_arguments: {"service_name": "apache"}
-
-                        User: "Run Exploit vsftpd_234_backdoor on 192.168.1.50"
-                        response: I'll execute the vsftpd 2.3.4 backdoor exploit against 192.168.1.50. This exploit takes advantage of a malicious backdoor in vsftpd version 2.3.4.
-                        function_to_execute: run_exploit
-                        function_arguments: {"exploit_name": "unix/ftp/vsftpd_234_backdoor", "target_ip": "192.168.1.50", "options": {}}
-
-                        User: "Show me all active sessions"
-                        response: I'll retrieve all active Metasploit sessions for you.
-                        function_to_execute: get_sessions
-                        function_arguments: null
-
-                        User: "Run whoami on session 1"
-                        response: I'll execute the whoami command on session 1 to identify the current user.
-                        function_to_execute: execute_command
-                        function_arguments: {"session_id": 1, "command": "whoami"}
-
-                        User: "Close session 1"
-                        response: I'll terminate session 1.
-                        function_to_execute: stop_session
-                        function_arguments: {"session_id": 1}
-
-                        User: "What is penetration testing?"
-                        response: Penetration testing is a simulated cyber attack against your system to identify exploitable vulnerabilities. It helps organizations strengthen their security posture by finding weaknesses before malicious actors do.
-                        function_to_execute: null
-                        function_arguments: null
-
-                        User: "Hello"
-                        response: Hello! I'm Aranea, your penetration testing assistant. I can help you scan networks, identify vulnerabilities, and conduct security assessments. What would you like to do today?
-                        function_to_execute: null
-                        function_arguments: null"""
+        self.documenter_functions = ['generate_pentest_report', 'get_engagement_summary']
+        self.prompt = AGENT_PROMPT
         
     @property
     def client(self):
         if self._client is None:
-            self._client = genai.Client()
+            api_key = os.getenv('GOOGLE_API_KEY')
+            self._client = genai.Client(api_key=api_key)
         return self._client
     
     @property
@@ -403,6 +460,16 @@ class Agent:
                         import ast
                         function_arguments = ast.literal_eval(args)
             
+            # Initialize history entry
+            history_entry = {
+                "query": query,
+                "response": response_text,
+                "function_executed": function_to_execute,
+                "function_arguments": function_arguments,
+                "function_result": None,
+                "formatted_result": None
+            }
+            
             if ws_manager and session_id:
                 if(function_to_execute and function_to_execute in self.scanner_functions):
                     await ws_manager.send_event(session_id, "text_response_with_function", response_text)
@@ -422,6 +489,10 @@ class Agent:
                         function_arguments=function_arguments,
                         raw_result=str(result)
                     )
+                    
+                    # Add results to history entry
+                    history_entry["function_result"] = str(result)
+                    history_entry["formatted_result"] = formatted_result
                     
                     await ws_manager.send_event(session_id, "function_result", formatted_result)
                     print("Formatted result sent to client")
@@ -446,13 +517,117 @@ class Agent:
                         raw_result=str(result)
                     )
                     
+                    # Add results to history entry
+                    history_entry["function_result"] = str(result)
+                    history_entry["formatted_result"] = formatted_result
+                    
                     await ws_manager.send_event(session_id, "function_result", formatted_result)
                     print("Formatted result sent to client")
+                elif(function_to_execute and function_to_execute in self.documenter_functions):
+                    await ws_manager.send_event(session_id, "text_response_with_function", response_text)
+                    print(f"Executing documenter function: {function_to_execute}")
+                    print(f"With arguments: {function_arguments}")
+                    
+                    # Call the documenter function
+                    if function_to_execute == 'generate_pentest_report':
+                        engagement_info = None
+                        if function_arguments and 'engagement_info' in function_arguments:
+                            engagement_info = function_arguments['engagement_info']
+                        result = self.generate_pentest_report(engagement_info)
+                    elif function_to_execute == 'get_engagement_summary':
+                        result = self.get_engagement_summary()
+                    else:
+                        result = "Unknown documenter function"
+                    
+                    print("Documenter function executed")
+                    
+                    # Format the result
+                    if function_to_execute == 'generate_pentest_report':
+                        formatted_result = result  # Report is already formatted in Markdown
+                    elif function_to_execute == 'get_engagement_summary':
+                        # Format summary as readable text
+                        formatted_result = f"""**Engagement Summary:**
+
+- **Total Interactions:** {result['total_interactions']}
+- **Functions Executed:** {result['functions_executed']}
+- **Scans Performed:** {result['scans_performed']}
+- **Exploits Attempted:** {result['exploits_attempted']}
+- **Unique Targets:** {', '.join(result['unique_targets']) if result['unique_targets'] else 'None'}"""
+                    else:
+                        formatted_result = str(result)
+                    
+                    # Add results to history entry
+                    history_entry["function_result"] = str(result)
+                    history_entry["formatted_result"] = formatted_result
+                    
+                    await ws_manager.send_event(session_id, "function_result", formatted_result)
+                    print("Documenter result sent to client")
                 else:
-                    await ws_manager.send_event(session_id, "text_response_no_function", response_text)   
+                    await ws_manager.send_event(session_id, "text_response_no_function", response_text)
+            else:
+                # Handle execution without websocket (for testing/CLI usage)
+                if function_to_execute:
+                    if function_to_execute in self.scanner_functions:
+                        function = getattr(Scanner(), function_to_execute)
+                        result = function(**function_arguments) if function_arguments else function()
+                        history_entry["function_result"] = str(result)
+                    elif function_to_execute in self.exploiter_functions:
+                        if not self.exploiter:
+                            raise RuntimeError("Exploiter instance not initialized")
+                        function = getattr(self.exploiter, function_to_execute)
+                        result = function(**function_arguments) if function_arguments else function()
+                        history_entry["function_result"] = str(result)
+                    elif function_to_execute in self.documenter_functions:
+                        if function_to_execute == 'generate_pentest_report':
+                            engagement_info = function_arguments.get('engagement_info') if function_arguments else None
+                            result = self.generate_pentest_report(engagement_info)
+                        elif function_to_execute == 'get_engagement_summary':
+                            result = self.get_engagement_summary()
+                        history_entry["function_result"] = str(result)
+            
+            # Append to history
+            self.history.append(history_entry)
+            
         except Exception as e:
-            await ws_manager.send_event(session_id, "error", {"message": str(e)})
+            if ws_manager and session_id:
+                await ws_manager.send_event(session_id, "error", {"message": str(e)})
             print(f"Error in respond method: {e}")
+    
+    def get_history(self):
+        """Get the complete history of interactions"""
+        return self.history
+    
+    def get_last_n_history(self, n=5):
+        """Get the last N entries from history"""
+        return self.history[-n:] if len(self.history) >= n else self.history
+    
+    def clear_history(self):
+        """Clear the history"""
+        self.history = []
+        return "History cleared"
+    
+    def generate_pentest_report(self, engagement_info: dict = None) -> str:
+        """
+        Generate a comprehensive penetration testing report
+        
+        Args:
+            engagement_info: Optional dict with engagement metadata
+                - client: Client organization name
+                - engagement_type: Type of engagement
+                - date: Test date
+                - tester: Tester name/team
+        
+        Returns:
+            Complete penetration testing report in Markdown format
+        """
+        documenter = DocumenterAgent()
+        report = documenter.generate_report(self.history, engagement_info)
+        return report
+    
+    def get_engagement_summary(self) -> dict:
+        """Get a quick statistical summary of the engagement"""
+        documenter = DocumenterAgent()
+        return documenter.generate_quick_summary(self.history)
     
 if __name__ == "__main__":
     agent = Agent()
