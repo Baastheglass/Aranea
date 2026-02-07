@@ -1,23 +1,64 @@
 import { useState, useRef, useEffect } from "react";
 
-export default function ChatInterface({ username }) {
-  const initialMessages = [
-    {
-      id: 1,
-      sender: "aranea",
-      text: `Welcome ${username}. I am Aranea, a distributed neural web. How may I assist you today?`
-    }
-  ];
-
-  const [messages, setMessages] = useState(initialMessages);
+export default function ChatInterface({ username, chatId }) {
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState(null);
+  const [loading, setLoading] = useState(true);
   const inputRef = useRef(null);
   const wsRef = useRef(null);
-  const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
   const streamingIntervalRef = useRef(null);
   const messagesEndRef = useRef(null);
+
+  // Load messages when chatId changes
+  useEffect(() => {
+    if (!chatId) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    const loadMessages = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:8000/chats/${chatId}/messages`);
+        const data = await response.json();
+        
+        if (data.success) {
+          // Transform API messages to component format
+          const loadedMessages = data.messages.map((msg, index) => ({
+            id: index + 1,
+            sender: msg.sender,
+            text: msg.text,
+          }));
+          
+          // Add welcome message if no messages exist
+          if (loadedMessages.length === 0) {
+            loadedMessages.push({
+              id: 1,
+              sender: "aranea",
+              text: `Welcome ${username}. I am Aranea, a distributed neural web. How may I assist you today?`
+            });
+          }
+          
+          setMessages(loadedMessages);
+        }
+      } catch (error) {
+        console.error("Error loading messages:", error);
+        // Add welcome message on error
+        setMessages([{
+          id: 1,
+          sender: "aranea",
+          text: `Welcome ${username}. I am Aranea, a distributed neural web. How may I assist you today?`
+        }]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+  }, [chatId, username]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -69,19 +110,31 @@ export default function ChatInterface({ username }) {
 
       let pythonDict = jsonMatch[1].trim();
       
-      // Convert Python dict to JSON more carefully
+      // More robust Python dict to JSON conversion
       // Step 1: Replace Python boolean/null values
       pythonDict = pythonDict
         .replace(/\bNone\b/g, 'null')
         .replace(/\bTrue\b/g, 'true')
         .replace(/\bFalse\b/g, 'false');
       
-      // Step 2: Handle single quotes - need to be careful to not break strings
-      // Replace single quotes with double quotes
+      // Step 2: Handle single quotes more carefully
+      // This regex handles escaped quotes and converts single quotes to double quotes
+      // It preserves escaped characters within strings
       pythonDict = pythonDict.replace(/'/g, '"');
       
-      // Try to parse
-      const data = JSON.parse(pythonDict);
+      // Step 3: Fix any JSON formatting issues
+      // Remove trailing commas before closing braces/brackets
+      pythonDict = pythonDict.replace(/,(\s*[}\]])/g, '$1');
+      
+      let data;
+      try {
+        data = JSON.parse(pythonDict);
+      } catch (parseError) {
+        // If parsing fails, try an alternative approach
+        console.warn('Direct JSON parse failed, attempting eval approach:', parseError.message);
+        // Return original text with a note
+        return text.replace('```', '```\n(Note: Could not parse results for formatting)\n');
+      }
       
       // Format as readable text
       let formatted = '**Website Servers Found:**\n\n';
@@ -89,7 +142,7 @@ export default function ChatInterface({ username }) {
       
       for (const [key, server] of Object.entries(data)) {
         formatted += `═══════════════════════════════════════\n`;
-        formatted += `[${count}] ${server.ip_address}\n`;
+        formatted += `[${count}] ${server.ip_address || key}\n`;
         formatted += `═══════════════════════════════════════\n`;
         
         if (server.hostnames && server.hostnames.length > 0) {
@@ -98,25 +151,47 @@ export default function ChatInterface({ username }) {
           hostnames.forEach(h => formatted += `  • ${h}\n`);
         }
         
-        formatted += `\nOrganization: ${server.organization}\n`;
-        formatted += `Location: ${server.location.city}, ${server.location.country}\n`;
+        if (server.organization) {
+          formatted += `\nOrganization: ${server.organization}\n`;
+        }
+        
+        if (server.location) {
+          formatted += `Location: ${server.location.city || 'Unknown'}, ${server.location.country || 'Unknown'}\n`;
+        }
         
         if (server.technologies && server.technologies.length > 0) {
           formatted += `Technologies: ${server.technologies.join(', ')}\n`;
         }
         
-        if (server.ssl_certificate && server.ssl_certificate.issued_to && server.ssl_certificate.issued_to.common_name) {
-          formatted += `\nSSL Certificate:\n`;
-          formatted += `  • Issued To: ${server.ssl_certificate.issued_to.common_name}\n`;
-          if (server.ssl_certificate.issued_by) {
-            formatted += `  • Issued By: ${server.ssl_certificate.issued_by.common_name}\n`;
-          }
-          if (server.ssl_certificate.ssl_versions) {
-            formatted += `  • SSL Versions: ${server.ssl_certificate.ssl_versions.join(', ')}\n`;
+        if (server.tags && server.tags.length > 0) {
+          formatted += `Tags: ${server.tags.join(', ')}\n`;
+        }
+        
+        if (server.ssl_certificate) {
+          if (server.ssl_certificate.issued_to && server.ssl_certificate.issued_to.common_name) {
+            formatted += `\nSSL Certificate:\n`;
+            formatted += `  • Issued To: ${server.ssl_certificate.issued_to.common_name}\n`;
+            if (server.ssl_certificate.issued_by && server.ssl_certificate.issued_by.common_name) {
+              formatted += `  • Issued By: ${server.ssl_certificate.issued_by.common_name}\n`;
+            }
+            if (server.ssl_certificate.ssl_versions && server.ssl_certificate.ssl_versions.length > 0) {
+              formatted += `  • SSL Versions: ${server.ssl_certificate.ssl_versions.join(', ')}\n`;
+            }
           }
         }
         
-        formatted += `\nLast Seen: ${server.last_seen}\n`;
+        if (server.banner) {
+          // Truncate long banners
+          const bannerPreview = server.banner.length > 200 
+            ? server.banner.substring(0, 200) + '...' 
+            : server.banner;
+          formatted += `\nBanner:\n${bannerPreview}\n`;
+        }
+        
+        if (server.last_seen) {
+          formatted += `\nLast Seen: ${server.last_seen}\n`;
+        }
+        
         formatted += '\n';
         count++;
       }
@@ -178,11 +253,14 @@ export default function ChatInterface({ username }) {
   };
 
   useEffect(() => {
+    // Only connect WebSocket if chatId is available
+    if (!chatId) return;
+    
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://localhost:8000/ws/${sessionIdRef.current}`);
+    const ws = new WebSocket(`ws://localhost:8000/ws/${username}/${chatId}`);
     
     ws.onopen = () => {
-      console.log("WebSocket connected");
+      console.log("WebSocket connected for chat:", chatId);
     };
     
     ws.onmessage = async (event) => {
@@ -269,7 +347,7 @@ export default function ChatInterface({ username }) {
     
     wsRef.current = ws;
     
-    // Cleanup on unmount
+    // Cleanup on unmount or when chat changes
     return () => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
@@ -278,7 +356,7 @@ export default function ChatInterface({ username }) {
         clearInterval(streamingIntervalRef.current);
       }
     };
-  }, []);
+  }, [chatId, username]);
 
   const handleContainerClick = () => {
     // Focus input when clicking anywhere in the chat area
@@ -294,7 +372,7 @@ export default function ChatInterface({ username }) {
 
     const userMessage = {
       id: Date.now(),
-      sender: "user",
+      sender: username,
       text: trimmed
     };
 
@@ -322,6 +400,35 @@ export default function ChatInterface({ username }) {
       setMessages((prev) => [...prev, errorReply]);
     }
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="chat-root">
+        <div className="chat-shell">
+          <main className="chat-main">
+            <div className="loading-state">Loading messages...</div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  // Show "No chat selected" state
+  if (!chatId) {
+    return (
+      <div className="chat-root">
+        <div className="chat-shell">
+          <main className="chat-main">
+            <div className="empty-state">
+              <h2>No chat selected</h2>
+              <p>Select a chat from the sidebar or create a new one to get started.</p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-root">
@@ -409,20 +516,24 @@ export default function ChatInterface({ username }) {
 ⠀⠀⠀⠀⠀⠀⠀⠻⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 `}
             </pre>
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={
-                  m.sender === "user" ? "message-row user" : "message-row sentinel"
-                }
-              >
-                <pre className={m.wasStreamed ? "message-line no-animation" : "message-line"}>
-{m.sender === "user"
-  ? `user@web:~$ ${m.text}`
-  : `aranea@web:~$ ${m.text}`}
-                </pre>
-              </div>
-            ))}
+            {messages.map((m) => {
+              // Format the text if it contains find_website_servers results
+              const displayText = m.sender === "aranea" ? formatWebsiteServersResults(m.text) : m.text;
+              return (
+                <div
+                  key={m.id}
+                  className={
+                    m.sender !== "aranea" ? "message-row user" : "message-row sentinel"
+                  }
+                >
+                  <pre className={m.wasStreamed ? "message-line no-animation" : "message-line"}>
+{m.sender !== "aranea"
+  ? `${m.sender}@web:~$ ${displayText}`
+  : `aranea@web:~$ ${displayText}`}
+                  </pre>
+                </div>
+              );
+            })}
             {streamingMessage && (
               <div className="message-row sentinel">
                 <pre className="message-line">

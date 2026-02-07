@@ -150,6 +150,19 @@ class LoginRequest(BaseModel):
             raise ValueError('Password is required')
         return v
 
+class CreateChatRequest(BaseModel):
+    username: str
+    title: str = None
+
+class SaveMessageRequest(BaseModel):
+    chat_id: str
+    sender: str
+    text: str
+
+class UpdateChatTitleRequest(BaseModel):
+    chat_id: str
+    title: str
+
 # Authentication endpoints
 @app.post("/auth/signup")
 async def signup(request: SignupRequest):
@@ -190,6 +203,95 @@ async def login(request: LoginRequest):
         "user": user_data
     }
 
+# Chat management endpoints
+@app.post("/chats/create")
+async def create_chat(request: CreateChatRequest):
+    """
+    Create a new chat session for a user
+    """
+    success, message, chat_data = db.create_chat(request.username, request.title)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {
+        "success": True,
+        "message": message,
+        "chat": chat_data
+    }
+
+@app.get("/chats/{username}")
+async def get_user_chats(username: str):
+    """
+    Get all chat sessions for a user
+    """
+    chats = db.get_user_chats(username)
+    return {
+        "success": True,
+        "chats": chats
+    }
+
+@app.get("/chats/{chat_id}/messages")
+async def get_chat_messages(chat_id: str):
+    """
+    Get all messages for a specific chat
+    """
+    messages = db.get_chat_messages(chat_id)
+    return {
+        "success": True,
+        "messages": messages
+    }
+
+@app.post("/chats/message")
+async def save_message(request: SaveMessageRequest):
+    """
+    Save a message to a chat
+    """
+    success, message, message_data = db.save_message(
+        request.chat_id,
+        request.sender,
+        request.text
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {
+        "success": True,
+        "message": message,
+        "message_data": message_data
+    }
+
+@app.put("/chats/title")
+async def update_chat_title(request: UpdateChatTitleRequest):
+    """
+    Update the title of a chat
+    """
+    success, message = db.update_chat_title(request.chat_id, request.title)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {
+        "success": True,
+        "message": message
+    }
+
+@app.delete("/chats/{chat_id}")
+async def delete_chat(chat_id: str):
+    """
+    Delete a chat and all its messages
+    """
+    success, message = db.delete_chat(chat_id)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {
+        "success": True,
+        "message": message
+    }
+
 # Existing endpoint
 @app.post("/generate")
 async def generate_content(query: str = Body(..., embed=True)):
@@ -197,8 +299,9 @@ async def generate_content(query: str = Body(..., embed=True)):
     return {"response": response}
 
 # WebSocket endpoint
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
+@app.websocket("/ws/{username}/{chat_id}")
+async def websocket_endpoint(websocket: WebSocket, username: str, chat_id: str):
+    session_id = f"{username}_{chat_id}"
     await ws_manager.connect(websocket, session_id)
     try:
         while True:
@@ -209,14 +312,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if data.get("type") == "query":
                 query = data.get("message")
                 
-                # Agent handles all event emissions internally
-                await agent.respond(query, ws_manager=ws_manager, session_id=session_id)
+                # Save user message to database
+                db.save_message(chat_id, username, query)
+                
+                # Agent handles all event emissions internally and saves its response to DB
+                await agent.respond(
+                    query,
+                    ws_manager=ws_manager,
+                    session_id=session_id,
+                    db=db,
+                    chat_id=chat_id,
+                    username=username
+                )
     
     except WebSocketDisconnect:
         ws_manager.disconnect(session_id)
     except Exception as e:
-        print(f"WebSocket error: {e}")
-        ws_manager.disconnect(session_id)
         print(f"WebSocket error: {e}")
         ws_manager.disconnect(session_id)
 

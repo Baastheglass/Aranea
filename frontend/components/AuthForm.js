@@ -10,7 +10,7 @@ export default function AuthForm({ mode }) {
   const [error, setError] = useState("");
   const router = useRouter();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
@@ -25,39 +25,58 @@ export default function AuthForm({ mode }) {
       return;
     }
 
-    if (mode === "signup") {
-      // Store user data in localStorage for demo
-      const users = JSON.parse(localStorage.getItem("araneaUsers") || "{}");
-      
-      if (users[formData.username]) {
-        setError("Username already exists");
-        return;
+    try {
+      if (mode === "signup") {
+        // Call backend signup endpoint
+        const response = await fetch("http://localhost:8000/auth/signup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            username: formData.username,
+            email: formData.email,
+            password: formData.password,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.detail || "Signup failed");
+          return;
+        }
+
+        // Store username in localStorage for session management
+        localStorage.setItem("currentUser", formData.username);
+        router.push("/home");
+      } else {
+        // Call backend login endpoint
+        const response = await fetch("http://localhost:8000/auth/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            username: formData.username,
+            password: formData.password,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.detail || "Login failed");
+          return;
+        }
+
+        // Store username in localStorage for session management
+        localStorage.setItem("currentUser", formData.username);
+        router.push("/home");
       }
-
-      users[formData.username] = {
-        email: formData.email,
-        password: formData.password, // In production, this would be hashed
-      };
-
-      localStorage.setItem("araneaUsers", JSON.stringify(users));
-      localStorage.setItem("currentUser", formData.username);
-      router.push("/home");
-    } else {
-      // Login
-      const users = JSON.parse(localStorage.getItem("araneaUsers") || "{}");
-      
-      if (!users[formData.username]) {
-        setError("User not found");
-        return;
-      }
-
-      if (users[formData.username].password !== formData.password) {
-        setError("Invalid password");
-        return;
-      }
-
-      localStorage.setItem("currentUser", formData.username);
-      router.push("/home");
+    } catch (error) {
+      console.error("Authentication error:", error);
+      setError("Network error. Please ensure the backend server is running.");
     }
   };
 

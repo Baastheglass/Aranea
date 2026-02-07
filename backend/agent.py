@@ -533,7 +533,7 @@ class Agent:
                                               system_instruction=self.prompt))
         return response.text
     
-    async def respond(self, query, ws_manager = None, session_id = None):
+    async def respond(self, query, ws_manager = None, session_id = None, db = None, chat_id = None, username = None):
         response = self.generate(query)
         print("Unformatted Agent response received:", response)
         # Simple parsing logic to extract response, function_to_execute, and function_arguments
@@ -716,6 +716,16 @@ class Agent:
             
             # Append to history
             self.history.append(history_entry)
+            
+            # Save agent response to database if database and chat_id are provided
+            if db and chat_id and username:
+                # Determine the message text to save - include formatted result if available
+                message_to_save = response_text
+                if history_entry.get("formatted_result"):
+                    message_to_save += "\n\n" + history_entry["formatted_result"]
+                
+                db.save_message(chat_id, "aranea", message_to_save)
+                print(f"Agent response saved to database for chat {chat_id}")
             
         except Exception as e:
             if ws_manager and session_id:
