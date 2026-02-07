@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import styles from "../styles/ChatSidebar.module.css";
+import { BACKEND_URL } from "../constants";
 
 export default function ChatSidebar({ username, currentChatId, onChatSelect, onNewChat, width = 280, onResize }) {
   const router = useRouter();
@@ -56,7 +57,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
   const fetchChats = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8000/chats/${username}`);
+      const response = await fetch(`${BACKEND_URL}/chats/${username}`);
       const data = await response.json();
       
       if (data.success) {
@@ -71,7 +72,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
 
   const handleNewChat = async () => {
     try {
-      const response = await fetch("http://localhost:8000/chats/create", {
+      const response = await fetch(`${BACKEND_URL}/chats/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -103,7 +104,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/chats/${chatId}`, {
+      const response = await fetch(`${BACKEND_URL}/chats/${chatId}`, {
         method: "DELETE",
       });
 
@@ -146,7 +147,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
     }
 
     try {
-      const response = await fetch("http://localhost:8000/chats/title", {
+      const response = await fetch(`${BACKEND_URL}/chats/title`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -195,7 +196,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
       button.style.opacity = '0.5';
       
       // Fetch the PDF report
-      const response = await fetch(`http://localhost:8000/chats/${chatId}/report`);
+      const response = await fetch(`${BACKEND_URL}/chats/${chatId}/report`);
       
       if (!response.ok) {
         const errorText = await response.text();

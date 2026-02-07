@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
+import { BACKEND_URL } from "../constants";
 
 export default function AuthForm({ mode }) {
   const [formData, setFormData] = useState({
@@ -28,7 +29,7 @@ export default function AuthForm({ mode }) {
     try {
       if (mode === "signup") {
         // Call backend signup endpoint
-        const response = await fetch("http://localhost:8000/auth/signup", {
+        const response = await fetch(`${BACKEND_URL}/auth/signup`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -52,7 +53,7 @@ export default function AuthForm({ mode }) {
         router.push("/home");
       } else {
         // Call backend login endpoint
-        const response = await fetch("http://localhost:8000/auth/login", {
+        const response = await fetch(`${BACKEND_URL}/auth/login`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

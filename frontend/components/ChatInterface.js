@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { BACKEND_URL, WS_URL } from "../constants";
 
 export default function ChatInterface({ username, chatId }) {
   const [messages, setMessages] = useState([]);
@@ -22,7 +23,7 @@ export default function ChatInterface({ username, chatId }) {
     const loadMessages = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:8000/chats/${chatId}/messages`);
+        const response = await fetch(`${BACKEND_URL}/chats/${chatId}/messages`);
         const data = await response.json();
         
         if (data.success) {
@@ -257,7 +258,7 @@ export default function ChatInterface({ username, chatId }) {
     if (!chatId) return;
     
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://localhost:8000/ws/${username}/${chatId}`);
+    const ws = new WebSocket(`${WS_URL}/ws/${username}/${chatId}`);
     
     ws.onopen = () => {
       console.log("WebSocket connected for chat:", chatId);
