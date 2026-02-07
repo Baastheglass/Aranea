@@ -554,7 +554,7 @@ export default function ChatInterface({ username, chatId }) {
             )}
             {!isTyping && !streamingMessage && (
               <form onSubmit={handleSend} className="terminal-input-row">
-                <span className="prompt-label">user@web:~$</span>
+                <span className="prompt-label">{username}@web:~$</span>
                 <input
                   ref={inputRef}
                   type="text"
