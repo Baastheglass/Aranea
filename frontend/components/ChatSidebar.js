@@ -2,16 +2,47 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import styles from "../styles/ChatSidebar.module.css";
 
-export default function ChatSidebar({ username, currentChatId, onChatSelect, onNewChat }) {
+export default function ChatSidebar({ username, currentChatId, onChatSelect, onNewChat, width = 280, onResize }) {
   const router = useRouter();
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingChatId, setEditingChatId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
+  const [isResizing, setIsResizing] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(null);
 
   useEffect(() => {
     fetchChats();
   }, [username]);
+
+  // Handle resize
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      const newWidth = e.clientX;
+      // Constrain width between 200px and 600px
+      if (newWidth >= 200 && newWidth <= 600) {
+        onResize(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, onResize]);
+
+  const handleResizeStart = () => {
+    setIsResizing(true);
+  };
 
   // Sort chats by created_at, most recent first
   const sortChatsByDate = (chatList) => {
@@ -151,8 +182,91 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
     }
   };
 
+  const handleGenerateReport = async (chatId, e) => {
+    e.stopPropagation();
+    
+    // Store button reference before async operations
+    const button = e.currentTarget;
+    
+    try {
+      // Show loading state
+      setGeneratingReport(chatId);
+      button.disabled = true;
+      button.style.opacity = '0.5';
+      
+      // Fetch the PDF report
+      const response = await fetch(`http://localhost:8000/chats/${chatId}/report`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server response:', errorText);
+        throw new Error(`Failed to generate report: ${response.status} ${response.statusText}`);
+      }
+      
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Extract filename from Content-Disposition header if available
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'pentest_report.pdf';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/i);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      // Re-enable button
+      setGeneratingReport(null);
+      button.disabled = false;
+      button.style.opacity = '1';
+    } catch (error) {
+      console.error('Error generating report:', error);
+      alert('Failed to generate report. Please make sure the backend server is running and try again.');
+      
+      // Re-enable button using stored reference
+      setGeneratingReport(null);
+      if (button) {
+        button.disabled = false;
+        button.style.opacity = '1';
+      }
+    }
+  };
+
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    if (!dateString) return "Unknown";
+    
+    // Handle MongoDB date objects and ISO strings
+    let date;
+    if (dateString.$date) {
+      // MongoDB extended JSON format
+      date = new Date(dateString.$date);
+    } else if (typeof dateString === 'object' && dateString.getTime) {
+      // Already a Date object
+      date = dateString;
+    } else {
+      // ISO string or other format
+      date = new Date(dateString);
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return "Invalid date";
+    }
+    
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
@@ -164,7 +278,11 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
     
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
+    });
   };
 
   const truncateText = (text, maxLength = 50) => {
@@ -182,7 +300,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
 
   if (loading) {
     return (
-      <div className={styles.sidebar}>
+      <div className={styles.sidebar} style={{ width: `${width}px` }}>
         <div className={styles.header}>
           <h2>Chats</h2>
           <button className={styles.newChatBtn} onClick={handleNewChat}>
@@ -195,7 +313,7 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
   }
 
   return (
-    <div className={styles.sidebar}>
+    <div className={styles.sidebar} style={{ width: `${width}px` }}>
       <div className={styles.header}>
         <h2>Chats</h2>
         <button className={styles.newChatBtn} onClick={handleNewChat} title="New Chat">
@@ -239,10 +357,22 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
                   {truncateText(chat.last_message)}
                 </div>
                 <div className={styles.chatDate}>
-                  {formatDate(chat.updated_at)}
+                  {formatDate(chat.created_at)}
                 </div>
               </div>
               <div className={styles.chatActions}>
+                <button
+                  className={styles.reportBtn}
+                  onClick={(e) => handleGenerateReport(chat.chat_id, e)}
+                  title="Generate pentesting report"
+                  disabled={generatingReport === chat.chat_id}
+                >
+                  {generatingReport === chat.chat_id ? (
+                    <span className={styles.spinner}>⏳</span>
+                  ) : (
+                    "📄"
+                  )}
+                </button>
                 <button
                   className={styles.editBtn}
                   onClick={(e) => handleStartEdit(chat, e)}
@@ -274,6 +404,11 @@ export default function ChatSidebar({ username, currentChatId, onChatSelect, onN
           <span>⏻</span>
         </button>
       </div>
+      
+      <div 
+        className={styles.resizeHandle}
+        onMouseDown={handleResizeStart}
+      />
     </div>
   );
 }

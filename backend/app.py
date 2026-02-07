@@ -1,16 +1,28 @@
 import uvicorn
 import os
+import re
 import time
 import subprocess
 from fastapi import FastAPI, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
 from pymetasploit3.msfrpc import MsfRpcClient
-from agent import Agent
+from agent import Agent, DocumenterAgent
 from agent_tools import Exploiter
 from db import Database
 from websocket_manager import ws_manager
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+from reportlab.pdfgen import canvas
+from datetime import datetime
+from bson import ObjectId
+import tempfile
 
 # Load environment variables
 load_dotenv()
@@ -291,6 +303,307 @@ async def delete_chat(chat_id: str):
         "success": True,
         "message": message
     }
+
+@app.get("/chats/{chat_id}/report")
+async def generate_report(chat_id: str):
+    """
+    Generate a pentesting report PDF for a specific chat using DocumenterAgent
+    """
+    print(f"[REPORT] Starting report generation for chat ID: {chat_id}")
+    
+    # Check if chat exists - convert string chat_id to ObjectId for MongoDB query
+    try:
+        chat_object_id = ObjectId(chat_id)
+        print(f"[REPORT] Converted chat_id to ObjectId: {chat_object_id}")
+    except Exception as e:
+        print(f"[REPORT] ERROR - Invalid chat ID format: {e}")
+        raise HTTPException(status_code=400, detail="Invalid chat ID format")
+    
+    print(f"[REPORT] Fetching chat from database...")
+    chat = db.chats.find_one({"_id": chat_object_id})
+    if not chat:
+        print(f"[REPORT] ERROR - Chat not found")
+        raise HTTPException(status_code=404, detail="Chat not found")
+    print(f"[REPORT] Chat found: {chat.get('title', 'Untitled')}")
+    
+    print(f"[REPORT] Fetching chat messages...")
+    messages = db.get_chat_messages(chat_id)
+    if not messages:
+        print(f"[REPORT] ERROR - Chat has no messages")
+        raise HTTPException(status_code=404, detail="Chat has no messages")
+    print(f"[REPORT] Found {len(messages)} messages")
+    
+    # Use DocumenterAgent to generate the report content
+    print(f"[REPORT] Initializing DocumenterAgent...")
+    documenter = DocumenterAgent()
+    
+    # Prepare engagement info
+    engagement_info = {
+        'chat_title': chat.get('title', 'Untitled Chat'),
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'tester': 'Aranea Security Team',
+        'client': 'Client Organization',
+        'engagement_type': 'AI-Assisted Penetration Testing'
+    }
+    print(f"[REPORT] Engagement info prepared: {engagement_info['chat_title']}")
+    
+    # Generate markdown report using AI
+    try:
+        print(f"[REPORT] Generating markdown report with AI...")
+        markdown_report = documenter.generate_report(db, chat_id, engagement_info)
+        print(f"[REPORT] Markdown report generated ({len(markdown_report)} characters)")
+    except Exception as e:
+        print(f"[REPORT] ERROR - Failed to generate report with DocumenterAgent: {e}")
+        import traceback
+        print(f"[REPORT] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+    
+    # Create PDF from markdown
+    print(f"[REPORT] Creating temporary PDF file...")
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    pdf_path = temp_pdf.name
+    temp_pdf.close()
+    print(f"[REPORT] PDF path: {pdf_path}")
+    
+    # Convert markdown to PDF
+    print(f"[REPORT] Initializing PDF document...")
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter,
+                           rightMargin=72, leftMargin=72,
+                           topMargin=72, bottomMargin=18)
+    
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Define custom styles
+    print(f"[REPORT] Defining custom styles...")
+    
+    # Professional color scheme
+    primary_color = colors.HexColor('#1E3A8A')  # Deep blue
+    secondary_color = colors.HexColor('#3B82F6')  # Bright blue
+    accent_color = colors.HexColor('#60A5FA')  # Light blue
+    danger_color = colors.HexColor('#DC2626')  # Red for critical
+    warning_color = colors.HexColor('#F59E0B')  # Orange for high
+    
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=28,
+        textColor=primary_color,
+        spaceAfter=24,
+        spaceBefore=0,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold',
+        leading=34
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=primary_color,
+        spaceAfter=10,
+        spaceBefore=16,
+        fontName='Helvetica-Bold',
+        borderWidth=0,
+        borderPadding=0,
+        borderColor=primary_color,
+        leftIndent=0
+    )
+    
+    subheading_style = ParagraphStyle(
+        'CustomSubHeading',
+        parent=styles['Heading3'],
+        fontSize=12,
+        textColor=secondary_color,
+        spaceAfter=8,
+        spaceBefore=10,
+        fontName='Helvetica-Bold'
+    )
+    
+    body_style = ParagraphStyle(
+        'CustomBody',
+        parent=styles['BodyText'],
+        fontSize=10,
+        textColor=colors.HexColor('#1F2937'),
+        spaceAfter=8,
+        alignment=TA_LEFT,
+        fontName='Helvetica',
+        leading=14
+    )
+    
+    bullet_style = ParagraphStyle(
+        'CustomBullet',
+        parent=body_style,
+        leftIndent=20,
+        bulletIndent=10,
+        spaceAfter=4
+    )
+    
+    code_style = ParagraphStyle(
+        'CustomCode',
+        parent=styles['Code'],
+        fontSize=8,
+        textColor=colors.HexColor('#374151'),
+        spaceAfter=8,
+        fontName='Courier',
+        backColor=colors.HexColor('#F3F4F6'),
+        leftIndent=15,
+        rightIndent=15,
+        borderWidth=1,
+        borderColor=colors.HexColor('#D1D5DB'),
+        borderPadding=8,
+        leading=11
+    )
+    
+    info_box_style = ParagraphStyle(
+        'InfoBox',
+        parent=body_style,
+        backColor=colors.HexColor('#EFF6FF'),
+        borderWidth=1,
+        borderColor=accent_color,
+        borderPadding=10,
+        leftIndent=10,
+        rightIndent=10,
+        spaceAfter=12
+    )
+    
+    # Add cover page elements
+    print(f"[REPORT] Creating cover page...")
+    elements.append(Spacer(1, 2*inch))
+    elements.append(Paragraph("PENETRATION TESTING REPORT", title_style))
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Add engagement info box
+    info_data = [
+        ['Client:', engagement_info.get('client', 'N/A')],
+        ['Date:', engagement_info.get('date', 'N/A')],
+        ['Tester:', engagement_info.get('tester', 'N/A')],
+        ['Engagement Type:', engagement_info.get('engagement_type', 'N/A')]
+    ]
+    
+    info_table = Table(info_data, colWidths=[1.5*inch, 4*inch])
+    info_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#EFF6FF')),
+        ('TEXTCOLOR', (0, 0), (0, -1), primary_color),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#BFDBFE')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(info_table)
+    elements.append(PageBreak())
+    
+    # Parse markdown and convert to PDF elements
+    print(f"[REPORT] Parsing markdown and converting to PDF elements...")
+    lines = markdown_report.split('\n')
+    in_code_block = False
+    code_content = []
+    line_count = 0
+    section_count = 0
+    
+    for line in lines:
+        line_count += 1
+        line = line.rstrip()
+        
+        # Handle code blocks
+        if line.startswith('```'):
+            if in_code_block:
+                # End code block
+                if code_content:
+                    code_text = '\n'.join(code_content)
+                    # Escape special characters for XML
+                    code_text = code_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    code_text = code_text.replace('\n', '<br/>')
+                    elements.append(Paragraph(code_text, code_style))
+                    elements.append(Spacer(1, 6))
+                code_content = []
+                in_code_block = False
+            else:
+                # Start code block
+                in_code_block = True
+            continue
+        
+        if in_code_block:
+            code_content.append(line)
+            continue
+        
+        # Skip empty lines
+        if not line.strip():
+            elements.append(Spacer(1, 6))
+            continue
+        
+        try:
+            # Parse markdown headers
+            if line.startswith('# '):
+                text = line[2:].strip()
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Skip the first title as we added it in cover page
+                if line_count > 1:
+                    elements.append(Paragraph(text, title_style))
+            elif line.startswith('## '):
+                section_count += 1
+                text = line[3:].strip()
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Add section separator line
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(f"{section_count}. {text}", heading_style))
+                # Add horizontal line under heading
+                elements.append(Spacer(1, 2))
+            elif line.startswith('### '):
+                text = line[4:].strip()
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                elements.append(Paragraph(text, subheading_style))
+            elif line.startswith('- ') or line.startswith('* '):
+                # Bullet point
+                text = line[2:].strip()
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Handle inline bold with proper regex
+                text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+                elements.append(Paragraph(f"• {text}", bullet_style))
+            elif line.startswith('**') and line.endswith('**') and line.count('**') == 2:
+                # Bold text (simple case - entire line)
+                text = line[2:-2]
+                text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                bold_style = ParagraphStyle('Bold', parent=body_style, fontName='Helvetica-Bold')
+                elements.append(Paragraph(text, bold_style))
+            else:
+                # Regular paragraph
+                text = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Handle inline bold with proper regex - match **text** patterns
+                text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+                elements.append(Paragraph(text, body_style))
+        except Exception as e:
+            print(f"[REPORT] ERROR parsing line {line_count}: {line[:100]}")
+            print(f"[REPORT] Error: {e}")
+            # Skip problematic lines instead of crashing
+            continue
+    
+    print(f"[REPORT] Parsed {line_count} lines, created {len(elements)} PDF elements")
+    
+    # Build PDF
+    try:
+        print(f"[REPORT] Building PDF document...")
+        doc.build(elements)
+        print(f"[REPORT] PDF built successfully")
+    except Exception as e:
+        print(f"[REPORT] ERROR building PDF: {e}")
+        import traceback
+        print(f"[REPORT] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to build PDF: {str(e)}")
+    
+    # Return the PDF file
+    filename = f"pentest_report_{chat.get('title', 'chat').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    print(f"[REPORT] Returning PDF file: {filename}")
+    return FileResponse(
+        pdf_path,
+        media_type='application/pdf',
+        filename=filename
+    )
 
 # Existing endpoint
 @app.post("/generate")

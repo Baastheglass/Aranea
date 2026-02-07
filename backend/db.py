@@ -153,8 +153,8 @@ class Database:
                 "chat_id": str(result.inserted_id),
                 "username": username,
                 "title": chat_doc["title"],
-                "created_at": chat_doc["created_at"],
-                "updated_at": chat_doc["updated_at"]
+                "created_at": chat_doc["created_at"].isoformat(),
+                "updated_at": chat_doc["updated_at"].isoformat()
             }
             
             return True, "Chat created successfully", chat_data
@@ -183,8 +183,8 @@ class Database:
                 chat_data = {
                     "chat_id": str(chat["_id"]),
                     "title": chat["title"],
-                    "created_at": chat["created_at"],
-                    "updated_at": chat["updated_at"],
+                    "created_at": chat["created_at"].isoformat(),
+                    "updated_at": chat["updated_at"].isoformat(),
                     "last_message": last_message["text"] if last_message else None
                 }
                 chat_list.append(chat_data)
@@ -212,12 +212,11 @@ class Database:
                     "chat_id": msg["chat_id"],
                     "sender": msg["sender"],
                     "text": msg["text"],
-                    "timestamp": msg["timestamp"]
+                    "timestamp": msg["timestamp"].isoformat()
                 }
                 message_list.append(message_data)
             
             return message_list
-            
         except Exception as e:
             print(f"Error getting chat messages: {str(e)}")
             return []
@@ -248,7 +247,7 @@ class Database:
                 "chat_id": chat_id,
                 "sender": sender,
                 "text": text,
-                "timestamp": message_doc["timestamp"]
+                "timestamp": message_doc["timestamp"].isoformat()
             }
             
             return True, "Message saved successfully", message_data

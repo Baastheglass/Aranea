@@ -6,6 +6,7 @@ import ChatSidebar from "../components/ChatSidebar";
 export default function Chat() {
   const [username, setUsername] = useState("");
   const [currentChatId, setCurrentChatId] = useState(null);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const router = useRouter();
 
   useEffect(() => {
@@ -18,6 +19,11 @@ export default function Chat() {
       const lastChatId = localStorage.getItem(`lastChatId_${currentUser}`);
       if (lastChatId) {
         setCurrentChatId(lastChatId);
+      }
+      // Load saved sidebar width
+      const savedWidth = localStorage.getItem("sidebarWidth");
+      if (savedWidth) {
+        setSidebarWidth(parseInt(savedWidth, 10));
       }
     }
   }, [router]);
@@ -38,6 +44,11 @@ export default function Chat() {
     }
   };
 
+  const handleSidebarResize = (newWidth) => {
+    setSidebarWidth(newWidth);
+    localStorage.setItem("sidebarWidth", newWidth.toString());
+  };
+
   if (!username) return null;
 
   return (
@@ -47,6 +58,8 @@ export default function Chat() {
         currentChatId={currentChatId}
         onChatSelect={handleChatSelect}
         onNewChat={handleNewChat}
+        width={sidebarWidth}
+        onResize={handleSidebarResize}
       />
       <ChatInterface username={username} chatId={currentChatId} />
     </div>

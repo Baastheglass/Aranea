@@ -27,17 +27,25 @@ class DocumenterAgent:
             self._chat = self.client.chats.create(model="gemini-2.5-flash")
         return self._chat
     
-    def generate_report(self, history_data: list, engagement_info: dict = None) -> str:
+    def generate_report(self, db, chat_id: str, engagement_info: dict = None) -> str:
         """
-        Generate a comprehensive penetration testing report from agent history
+        Generate a comprehensive penetration testing report from chat history in MongoDB
         
         Args:
-            history_data: List of history entries from Agent.get_history()
+            db: Database instance to fetch messages from
+            chat_id: Chat ID to generate report for
             engagement_info: Optional dict with engagement metadata (client, date, tester, etc.)
         
         Returns:
             Formatted penetration testing report in Markdown
         """
+        # Fetch chat messages from MongoDB
+        messages = db.get_chat_messages(chat_id)
+        chat = db.chats.find_one({"chat_id": chat_id})
+        
+        if not messages:
+            return "No messages found for this chat."
+        
         # Prepare engagement metadata
         if engagement_info is None:
             engagement_info = {}
@@ -46,9 +54,10 @@ class DocumenterAgent:
         engagement_info.setdefault('tester', 'Aranea Security Team')
         engagement_info.setdefault('client', 'Client Organization')
         engagement_info.setdefault('engagement_type', 'Internal Network Penetration Test')
+        engagement_info.setdefault('chat_title', chat.get('title', 'Untitled Chat') if chat else 'Untitled Chat')
         
-        # Format history for the AI
-        formatted_history = self._format_history_for_report(history_data)
+        # Format messages for the AI
+        formatted_history = self._format_messages_for_report(messages)
         
         # Create the prompt for report generation
         report_prompt = f"""Generate a comprehensive penetration testing report based on the following engagement information and testing activities:
@@ -75,77 +84,87 @@ Please generate a complete, professional penetration testing report following th
         
         return response.text
     
-    def _format_history_for_report(self, history_data: list) -> str:
-        """Format history data into a readable structure for the AI"""
-        if not history_data:
+    def _format_messages_for_report(self, messages: list) -> str:
+        """Format chat messages from MongoDB into a readable structure for the AI"""
+        if not messages:
             return "No testing activities recorded."
         
         formatted = []
-        for idx, entry in enumerate(history_data, 1):
-            formatted.append(f"\n{'='*60}")
-            formatted.append(f"ACTIVITY #{idx}")
-            formatted.append(f"{'='*60}")
-            formatted.append(f"\nUser Query: {entry['query']}")
-            formatted.append(f"\nAgent Response: {entry['response']}")
+        interaction_count = 0
+        
+        # Group messages into user-agent pairs focusing on pentest activities
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
             
-            if entry['function_executed']:
-                formatted.append(f"\nFunction Executed: {entry['function_executed']}")
+            # If this is a user message, look for the following agent response
+            if msg['sender'] != 'aranea':
+                interaction_count += 1
+                formatted.append(f"\n{'='*60}")
+                formatted.append(f"TESTING ACTIVITY #{interaction_count}")
+                formatted.append(f"{'='*60}")
+                formatted.append(f"\nTester Action: {msg['text']}")
                 
-                if entry['function_arguments']:
-                    formatted.append(f"Function Arguments: {entry['function_arguments']}")
-                
-                if entry['function_result']:
-                    formatted.append(f"\nRaw Results:")
-                    formatted.append("```")
-                    formatted.append(str(entry['function_result']))
-                    formatted.append("```")
-                
-                if entry['formatted_result']:
-                    formatted.append(f"\nFormatted Output:")
-                    formatted.append(entry['formatted_result'])
+                # Look for agent response
+                if i + 1 < len(messages) and messages[i + 1]['sender'] == 'aranea':
+                    agent_response = messages[i + 1]['text']
+                    formatted.append(f"\nSystem Output and Results:\n{agent_response}")
+                    i += 2  # Skip both user and agent message
+                else:
+                    formatted.append("\nSystem Output: [No response recorded]")
+                    i += 1
             else:
-                formatted.append("\nNo function executed (conversational interaction)")
+                # Standalone agent message (shouldn't happen normally)
+                i += 1
         
         return '\n'.join(formatted)
     
-    def generate_quick_summary(self, history_data: list) -> dict:
-        """Generate a quick statistical summary of the engagement"""
-        if not history_data:
+    def generate_quick_summary(self, db, chat_id: str) -> dict:
+        """Generate a quick summary of pentest activities from MongoDB"""
+        messages = db.get_chat_messages(chat_id)
+        
+        if not messages:
             return {
-                'total_interactions': 0,
-                'functions_executed': 0,
-                'scans_performed': 0,
-                'exploits_attempted': 0,
-                'unique_targets': set()
+                'status': 'No testing activities recorded',
+                'activities': 0
             }
         
+        # Analyze messages for pentest-related content
+        activities = 0
+        targets_found = set()
+        scan_keywords = ['scan', 'port', 'host', 'nmap', 'rustscan']
+        vuln_keywords = ['vulnerability', 'exploit', 'CVE', 'vulnerable']
+        
+        scans_detected = 0
+        vulns_detected = 0
+        
+        # Count user queries as activities and analyze content
+        for msg in messages:
+            if msg['sender'] != 'aranea':
+                activities += 1
+                text_lower = msg['text'].lower()
+                
+                # Check for scan-related activities
+                if any(keyword in text_lower for keyword in scan_keywords):
+                    scans_detected += 1
+                
+                # Extract IP addresses as targets
+                import re
+                ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', msg['text'])
+                targets_found.update(ips)
+            else:
+                # Analyze agent responses for vulnerabilities
+                text_lower = msg['text'].lower()
+                if any(keyword in text_lower for keyword in vuln_keywords):
+                    vulns_detected += 1
+        
         stats = {
-            'total_interactions': len(history_data),
-            'functions_executed': 0,
-            'scans_performed': 0,
-            'exploits_attempted': 0,
-            'unique_targets': set()
+            'total_activities': activities,
+            'scans_performed': scans_detected,
+            'vulnerabilities_mentioned': vulns_detected,
+            'targets_identified': len(targets_found),
+            'target_ips': list(targets_found)[:5] if targets_found else []  # Limit to 5 for brevity
         }
-        
-        for entry in history_data:
-            if entry['function_executed']:
-                stats['functions_executed'] += 1
-                
-                # Count specific activity types
-                if 'scan' in entry['function_executed'].lower():
-                    stats['scans_performed'] += 1
-                
-                if 'exploit' in entry['function_executed'].lower() or 'run_exploit' in entry['function_executed']:
-                    stats['exploits_attempted'] += 1
-                
-                # Extract target IPs
-                if entry['function_arguments']:
-                    if 'ip_address' in entry['function_arguments']:
-                        stats['unique_targets'].add(entry['function_arguments']['ip_address'])
-                    if 'target_ip' in entry['function_arguments']:
-                        stats['unique_targets'].add(entry['function_arguments']['target_ip'])
-        
-        stats['unique_targets'] = list(stats['unique_targets'])
         
         return stats
 
@@ -653,14 +672,14 @@ class Agent:
                     print(f"Executing documenter function: {function_to_execute}")
                     print(f"With arguments: {function_arguments}")
                     
-                    # Call the documenter function
+                    # Call the documenter function with db and chat_id
                     if function_to_execute == 'generate_pentest_report':
                         engagement_info = None
                         if function_arguments and 'engagement_info' in function_arguments:
                             engagement_info = function_arguments['engagement_info']
-                        result = self.generate_pentest_report(engagement_info)
+                        result = self.generate_pentest_report(db, chat_id, engagement_info)
                     elif function_to_execute == 'get_engagement_summary':
-                        result = self.get_engagement_summary()
+                        result = self.get_engagement_summary(db, chat_id)
                     else:
                         result = "Unknown documenter function"
                     
@@ -670,14 +689,15 @@ class Agent:
                     if function_to_execute == 'generate_pentest_report':
                         formatted_result = result  # Report is already formatted in Markdown
                     elif function_to_execute == 'get_engagement_summary':
-                        # Format summary as readable text
-                        formatted_result = f"""**Engagement Summary:**
+                        # Format summary as readable text with pentest focus
+                        targets = ', '.join(result.get('target_ips', [])) if result.get('target_ips') else 'None identified'
+                        formatted_result = f"""**Penetration Testing Summary:**
 
-- **Total Interactions:** {result['total_interactions']}
-- **Functions Executed:** {result['functions_executed']}
-- **Scans Performed:** {result['scans_performed']}
-- **Exploits Attempted:** {result['exploits_attempted']}
-- **Unique Targets:** {', '.join(result['unique_targets']) if result['unique_targets'] else 'None'}"""
+- **Total Testing Activities:** {result.get('total_activities', 0)}
+- **Scans Performed:** {result.get('scans_performed', 0)}
+- **Vulnerabilities Identified:** {result.get('vulnerabilities_mentioned', 0)}
+- **Targets Identified:** {result.get('targets_identified', 0)}
+- **Target IPs:** {targets}"""
                     else:
                         formatted_result = str(result)
                     
@@ -709,9 +729,9 @@ class Agent:
                     elif function_to_execute in self.documenter_functions:
                         if function_to_execute == 'generate_pentest_report':
                             engagement_info = function_arguments.get('engagement_info') if function_arguments else None
-                            result = self.generate_pentest_report(engagement_info)
+                            result = self.generate_pentest_report(db, chat_id, engagement_info) if db and chat_id else "Error: Database connection required for report generation"
                         elif function_to_execute == 'get_engagement_summary':
-                            result = self.get_engagement_summary()
+                            result = self.get_engagement_summary(db, chat_id) if db and chat_id else "Error: Database connection required for summary generation"
                         history_entry["function_result"] = str(result)
             
             # Append to history
@@ -745,11 +765,13 @@ class Agent:
         self.history = []
         return "History cleared"
     
-    def generate_pentest_report(self, engagement_info: dict = None) -> str:
+    def generate_pentest_report(self, db, chat_id: str, engagement_info: dict = None) -> str:
         """
-        Generate a comprehensive penetration testing report
+        Generate a comprehensive penetration testing report from MongoDB chat history
         
         Args:
+            db: Database instance
+            chat_id: Chat ID to generate report for
             engagement_info: Optional dict with engagement metadata
                 - client: Client organization name
                 - engagement_type: Type of engagement
@@ -760,13 +782,13 @@ class Agent:
             Complete penetration testing report in Markdown format
         """
         documenter = DocumenterAgent()
-        report = documenter.generate_report(self.history, engagement_info)
+        report = documenter.generate_report(db, chat_id, engagement_info)
         return report
     
-    def get_engagement_summary(self) -> dict:
-        """Get a quick statistical summary of the engagement"""
+    def get_engagement_summary(self, db, chat_id: str) -> dict:
+        """Get a quick statistical summary of the engagement from MongoDB"""
         documenter = DocumenterAgent()
-        return documenter.generate_quick_summary(self.history)
+        return documenter.generate_quick_summary(db, chat_id)
     
 if __name__ == "__main__":
     agent = Agent()
