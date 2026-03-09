@@ -53,6 +53,25 @@ class WebSocketManager:
         # Clean up disconnected sessions
         for session_id in disconnected:
             self.disconnect(session_id)
+    
+    def disconnect_all(self):
+        """Disconnect all active WebSocket connections"""
+        session_ids = list(self.active_connections.keys())
+        for session_id in session_ids:
+            try:
+                websocket = self.active_connections[session_id]
+                # Close the WebSocket connection
+                # Note: This is synchronous, but close operations are typically fast
+                try:
+                    import asyncio
+                    asyncio.create_task(websocket.close())
+                except:
+                    pass
+                self.disconnect(session_id)
+            except Exception as e:
+                print(f"Error disconnecting {session_id}: {e}")
+        self.active_connections.clear()
+        print("All WebSocket connections closed")
 
 # Global instance
 ws_manager = WebSocketManager()

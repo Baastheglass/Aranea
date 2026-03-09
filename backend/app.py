@@ -3,6 +3,10 @@ import os
 import re
 import time
 import subprocess
+import signal
+import sys
+import atexit
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -26,6 +30,13 @@ import tempfile
 
 # Load environment variables
 load_dotenv()
+
+# Global variables to track resources that need cleanup
+msfrpcd_pid = None
+msf_client = None
+db = None
+exploiter = None
+agent = None
 
 def is_port_in_use(port):
     """Check if a port is in use"""
@@ -64,21 +75,18 @@ if is_port_in_use(port):
     print(f"Port {port} is in use, killing process...")
     kill_process_on_port(port)
 
-# Now start msfrpcd
+# Now start msfrpcd and track its PID
 print(f"Starting msfrpcd on port {port}...")
 cmd = f"msfrpcd -P {password} -p {port} -a 127.0.0.1"
-ret = os.system(cmd)
-if ret == 0:
-    print("✓ msfrpcd started successfully")
-else:
-    print(f"⚠ msfrpcd exited with code {ret}")
+proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+msfrpcd_pid = proc.pid
+print(f"✓ msfrpcd started with PID {msfrpcd_pid}")
 
 # Wait for msfrpcd to fully start
 print("Waiting for msfrpcd to initialize...")
 time.sleep(5)
 
 # Initialize MsfRpcClient with retry logic
-msf_client = None
 max_retries = 3
 retry_delay = 3
 
@@ -98,7 +106,90 @@ for attempt in range(max_retries):
             print("⚠ Starting server without Metasploit functionality...")
             msf_client = None
 
-app = FastAPI()
+def cleanup_resources():
+    """Clean up all resources on shutdown"""
+    global msfrpcd_pid, msf_client, db
+    
+    print("\n🛑 Initiating graceful shutdown...")
+    
+    # Close all WebSocket connections
+    try:
+        print("Closing WebSocket connections...")
+        ws_manager.disconnect_all()
+        print("✓ WebSocket connections closed")
+    except Exception as e:
+        print(f"⚠ Error closing WebSocket connections: {e}")
+    
+    # Close database connection
+    if db:
+        try:
+            print("Closing database connection...")
+            db.close()
+            print("✓ Database connection closed")
+        except Exception as e:
+            print(f"⚠ Error closing database: {e}")
+    
+    # Stop msfrpcd process
+    if msfrpcd_pid:
+        try:
+            print(f"Stopping msfrpcd (PID {msfrpcd_pid})...")
+            os.kill(msfrpcd_pid, signal.SIGTERM)
+            time.sleep(2)
+            # Check if process still exists
+            try:
+                os.kill(msfrpcd_pid, 0)
+                # Process still exists, force kill
+                print("Force killing msfrpcd...")
+                os.kill(msfrpcd_pid, signal.SIGKILL)
+            except OSError:
+                # Process already terminated
+                pass
+            print("✓ msfrpcd stopped")
+        except Exception as e:
+            print(f"⚠ Error stopping msfrpcd: {e}")
+            # Try pkill as fallback
+            try:
+                os.system("pkill -TERM -f msfrpcd")
+                time.sleep(1)
+                os.system("pkill -KILL -f msfrpcd")
+            except:
+                pass
+    
+    # Kill any remaining processes on the ports
+    try:
+        print("Ensuring ports are freed...")
+        kill_process_on_port("8000")
+        kill_process_on_port(port)
+        print("✓ Ports freed")
+    except Exception as e:
+        print(f"⚠ Error freeing ports: {e}")
+    
+    print("✓ Shutdown complete")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    print(f"\n⚠ Received signal {signum}")
+    cleanup_resources()
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
+# Register cleanup to run at exit
+atexit.register(cleanup_resources)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan event handler"""
+    # Startup
+    print("✓ FastAPI application started")
+    yield
+    # Shutdown
+    print("FastAPI application shutting down...")
+    cleanup_resources()
+
+app = FastAPI(lifespan=lifespan)
 
 # Enable CORS
 app.add_middleware(

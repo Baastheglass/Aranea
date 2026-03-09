@@ -1,17 +1,111 @@
 {
-  "name": "sentinel-frontend",
+  "name": "sentinel-app",
   "version": "1.0.0",
+  "description": "AI-Powered Penetration Testing Assistant",
+  "author": "Sentinel Team",
+  "main": "electron/main.js",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "export": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-build": "npm run export && electron-builder",
+    "pack": "npm run export && electron-builder --dir",
+    "dist": "npm run export && electron-builder",
+    "dist-mac": "npm run export && electron-builder --mac",
+    "dist-win": "npm run export && electron-builder --win",
+    "dist-linux": "npm run export && electron-builder --linux"
   },
   "dependencies": {
+    "electron-is-dev": "^3.0.1",
     "next": "^14.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.4.1",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.sentinel.app",
+    "productName": "Sentinel",
+    "copyright": "Copyright © 2026 Sentinel Team",
+    "files": [
+      "out/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!env/lib/python3.10/site-packages/**/*.pyc",
+          "!env/lib/python3.10/site-packages/**/__pycache__",
+          "!__pycache__/**/*",
+          "!*.pyc",
+          "!.env"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "public"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
 

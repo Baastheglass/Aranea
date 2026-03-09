@@ -286,7 +286,17 @@ class Database:
             return False, f"Error deleting chat: {str(e)}"
         
     def close_connection(self):
-        self.client.close()
+        #Close the MongoDB connection
+        if self._client is not None:
+            try:
+                self._client.close()
+                print("MongoDB connection closed")
+            except Exception as e:
+                print(f"Error closing MongoDB connection: {e}")
+    
+    def close(self):
+        #Alias for close_connection for compatibility
+        self.close_connection()
 
 if __name__ == "__main__":
     pass
